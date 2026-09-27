@@ -12,7 +12,8 @@ import type { Game } from '../game/game';
 import type { Builder, Tool } from '../game/builder';
 import type { Car } from '../game/car';
 import type { Destination, House } from '../game/entities';
-import type { RNode } from '../game/network';
+import { motorwayCurve, type RNode } from '../game/network';
+import { polyFromPoints, polyAt, sampleCubic } from '../core/poly';
 import type { Junction } from '../game/traffic';
 import type { Bounds } from '../game/world';
 import type { MapId } from '../game/maps';
@@ -701,17 +702,24 @@ export class Renderer {
     for (const l of game.net.links) {
       if (l.kind !== 'motorway') continue;
       any = true;
-      const [ax, ay] = this.armEnd(l.a, l.dir);
-      const [bx, by] = this.armEnd(l.b, opp(l.dir));
-      path.moveTo(ax, ay);
-      path.lineTo(bx, by);
-      const ux = UX[l.dir];
-      const uy = UY[l.dir];
-      shadow.moveTo(ax + ux * 0.5, ay + uy * 0.5);
-      shadow.lineTo(bx - ux * 0.5, by - uy * 0.5);
+      const c = motorwayCurve(l.a.x, l.a.y, l.b.x, l.b.y, l.dir);
+      path.moveTo(c[0], c[1]);
+      path.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+      // the shadow leaves the ramps out
+      const pts: number[] = [];
+      sampleCubic(pts, c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], Math.max(4, Math.ceil(l.length * 2)));
+      const poly = polyFromPoints(pts);
+      const s0 = Math.min(0.5, poly.len * 0.3);
+      const q = { x: 0, y: 0, a: 0 };
+      for (let s = s0; s <= poly.len - s0 + 1e-6; s += 0.25) {
+        polyAt(poly, Math.min(s, poly.len - s0), q);
+        if (s > s0) shadow.lineTo(q.x, q.y);
+        else shadow.moveTo(q.x, q.y);
+      }
     }
     if (!any) return;
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.save();
     ctx.translate(0.12, 0.2);
     ctx.strokeStyle = th.motorwayShadow;
@@ -775,11 +783,13 @@ export class Renderer {
     const home = h.cars.filter((c) => c.state === 'home' || c.state === 'leaving');
     const px = -oy;
     const py = ox;
+    // a row in front of the house, filled from the middle
+    const gap = home.length > 2 ? 0.15 : 0.24;
     for (let k = 0; k < home.length; k++) {
-      const off = home.length === 1 ? 0 : k === 0 ? -0.12 : 0.12;
+      const off = (k - (home.length - 1) / 2) * gap;
       const x = h.x + 0.5 + ox * 0.33 + px * off;
       const y = h.y + 0.5 + oy * 0.33 + py * off;
-      this.drawCarShape(x, y, Math.atan2(oy, ox), h.color, s, 0);
+      this.drawCarShape(x, y, Math.atan2(oy, ox), h.color, s * (home.length > 2 ? 0.85 : 1), 0);
     }
   }
 
@@ -963,18 +973,19 @@ export class Renderer {
     if (!builder) return;
     if (builder.mw) {
       const m = builder.mw;
-      const ax = m.ax + 0.5;
-      const ay = m.ay + 0.5;
-      const bx = m.bx + 0.5;
-      const by = m.by + 0.5;
       ctx.lineCap = 'round';
       ctx.strokeStyle = m.ok ? th.ok : th.danger;
       ctx.globalAlpha = 0.75;
       ctx.lineWidth = ROAD_W + 0.08;
       ctx.setLineDash([0.2, 0.16]);
       ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
+      if (m.bx !== m.ax || m.by !== m.ay) {
+        const c = motorwayCurve(m.ax, m.ay, m.bx, m.by, m.dir);
+        ctx.moveTo(m.ax + 0.5, m.ay + 0.5);
+        ctx.lineTo(c[0], c[1]);
+        ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+        ctx.lineTo(m.bx + 0.5, m.by + 0.5);
+      }
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;

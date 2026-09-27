@@ -16,7 +16,8 @@ Ouvre l'adresse affichée (`http://localhost:5173`). Pour tester sur ton télép
 
 ## Principe
 
-- Chaque **maison** possède deux voitures. Les **bâtiments** génèrent des demandes (points blancs) que les voitures de leur couleur viennent satisfaire : chaque livraison rapporte 1 point.
+- Chaque **maison** possède quatre voitures. Les **bâtiments** génèrent des demandes (points blancs) que les voitures de leur couleur viennent satisfaire : chaque livraison rapporte 1 point.
+- Les maisons poussent en **quartiers**, à distance de leur bâtiment, de plus en plus loin à mesure que la ville s'agrandit : les flux des différentes couleurs se croisent et il faut de vrais axes.
 - Un nouveau bâtiment commence à demander dès qu'il est relié à une maison (ou après quelques secondes).
 - Si un bâtiment accumule trop de demandes, un compte à rebours démarre. S'il arrive au bout, la partie est perdue.
 - Chaque **semaine**, la ville s'agrandit, tu reçois des routes et tu choisis une amélioration.
@@ -31,7 +32,7 @@ Ouvre l'adresse affichée (`http://localhost:5173`). Pour tester sur ton télép
 | **Carrefour** | Une route traversante (2 branches de la classe la plus haute) est prioritaire ; quand 3 routes équivalentes ou plus se croisent, le carrefour fonctionne comme un **stop** (chacun s'arrête). |
 | **Rond-point** | Plusieurs voitures circulent en même temps, les entrants cèdent le passage à l'anneau. |
 | **Feux** | Phases alternées, adaptatives selon la demande. |
-| **Autoroute** | Voie rapide en ligne droite qui passe au-dessus de tout. |
+| **Autoroute** | Voie rapide qui passe au-dessus de tout, dans n'importe quelle direction (jusqu'à 13 cases). |
 | **Pont** | Se pose automatiquement quand tu traces au-dessus de l'eau. |
 | **Priorités** (semaine 3) | Un tap sur un carrefour : priorité automatique → route prioritaire choisie (les autres marquent le stop) → tourne-à-gauche interdit. |
 | **Vue trafic** | Colore les routes selon la congestion (vert → rouge). |
@@ -58,7 +59,7 @@ Mesuré dans un carrefour-laboratoire à 4 branches (trajets/min, trafic chargé
 - **Rond-point** : le meilleur choix dès que beaucoup de voitures tournent.
 - **Interdire de tourner à gauche** : petit gain (quelques %) aux feux, quand un détour existe.
 
-La demande vient des maisons : chacune réclame des trajets vers le bâtiment le plus proche de sa couleur, de plus en plus souvent. Plus les allers-retours sont courts et fluides, plus la ville tient longtemps. Des bots de test tiennent en moyenne ~15 semaines sur Plaine, ~14 sur Rivière et ~12 sur Archipel.
+La demande vient des maisons : chacune réclame des trajets vers le bâtiment le plus proche de sa couleur, de plus en plus souvent. Plus les allers-retours sont courts et fluides, plus la ville tient longtemps. Des bots de test tiennent en moyenne ~15 semaines sur Plaine et Rivière, ~12 sur Archipel.
 
 ### Contrôles
 

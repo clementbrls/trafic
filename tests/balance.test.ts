@@ -95,6 +95,58 @@ describe.skipIf(!enabled)('balance probes', () => {
     }
   }, 300000);
 
+  it('long axis: street vs avenue vs motorway', async () => {
+    const { Game } = await import('../src/game/game');
+    const { getMap } = await import('../src/game/maps');
+    const { Builder } = await import('../src/game/builder');
+    const { LAND } = await import('../src/game/world');
+    for (const kind of ['street', 'avenue', 'motorway'] as const) {
+      const g = new Game(getMap('plaine'), false, 3, { demo: true });
+      const w = g.world;
+      w.bounds = { x0: 0, y0: 0, x1: w.w, y1: w.h };
+      w.terrain.fill(LAND);
+      const dest = g.placeDestination(22, 8, 1, 22, 10, 2); // gate (22,10) facing S -> front (22,11)
+      for (const [x, y] of [[4, 10], [4, 12], [5, 13]]) g.placeHouse(x, y, 1, x === 5 ? 6 : 0);
+      const b = new Builder(g);
+      g.inv.roads = 200;
+      g.inv.motorways = 1;
+      b.begin(4.5, 10.5, 'road');
+      b.move(5.5, 10.5);
+      b.move(5.5, 11.5);
+      b.end();
+      b.begin(4.5, 12.5, 'road');
+      b.move(5.5, 12.5);
+      b.move(5.5, 11.5);
+      b.end();
+      b.begin(5.5, 13.5, 'road');
+      b.move(5.5, 12.5);
+      b.end();
+      // the axis from (6,11) to (21,11)
+      if (kind === 'motorway') {
+        b.begin(5.5, 11.5, 'road');
+        b.move(6.5, 11.5);
+        b.end();
+        b.begin(6.5, 11.5, 'motorway');
+        b.move(18.5, 11.5);
+        b.end();
+        b.begin(18.5, 11.5, 'road');
+      } else {
+        b.begin(5.5, 11.5, 'road');
+      }
+      for (let x = kind === 'motorway' ? 19 : 6; x <= 22; x++) b.move(x + 0.5, 11.5);
+      b.move(22.5, 10.5);
+      b.end();
+      if (kind === 'avenue') for (const l of g.net.links) if (!l.a.isTerminal && !l.b.isTerminal) g.net.setLinkStyle(l, 'avenue', 0);
+      const t0 = { trips: g.stats.trips, sum: g.stats.tripSum };
+      while (g.time < 240) {
+        g.step(1 / 60);
+        g.events.length = 0;
+      }
+      const n = g.stats.trips - t0.trips;
+      console.log(`${kind.padEnd(8)} trips ${g.score} avg trip ${((g.stats.tripSum - t0.sum) / Math.max(1, n)).toFixed(1)}s linked ${g.houses.filter((h) => g.linked(h, dest)).length}/3`);
+    }
+  }, 300000);
+
   it('early game pressure', async () => {
     const { Game } = await import('../src/game/game');
     const { getMap } = await import('../src/game/maps');

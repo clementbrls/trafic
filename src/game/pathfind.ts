@@ -1,5 +1,5 @@
 import { MinHeap } from '../core/heap';
-import { DIR_ANGLE, TERM, opp, isDiag, SPEED_MOTORWAY, SPEED_AVENUE } from './constants';
+import { DIR_ANGLE, TERM, opp, SPEED_MOTORWAY, SPEED_AVENUE } from './constants';
 import { mod, TAU } from '../core/math';
 import type { Link, RNode } from './network';
 
@@ -16,7 +16,7 @@ export type JunctionCost = (n: RNode) => number;
 const UTURN_COST = 7;
 
 export function linkCost(l: Link): number {
-  const len = l.span * (isDiag(l.dir) ? Math.SQRT2 : 1);
+  const len = l.length;
   if (l.kind === 'motorway') return len / SPEED_MOTORWAY;
   return l.tier === 'avenue' ? len / SPEED_AVENUE : len;
 }

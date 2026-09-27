@@ -84,12 +84,24 @@ describe('network rules', () => {
     expect(n.planBridge(c, 0)).toBe('span');
   });
 
-  it('plans motorways in straight lines', () => {
+  it('plans motorways at any angle', () => {
     const n = new Network(world(16, 8));
     expect(typeof n.planMotorway(1, 1, 5, 1)).toBe('object');
     expect(typeof n.planMotorway(1, 1, 4, 4)).toBe('object');
-    expect(n.planMotorway(1, 1, 4, 2)).toBe('direction');
+    const p = n.planMotorway(1, 1, 7, 3);
+    expect(typeof p).toBe('object');
+    if (typeof p === 'object') {
+      expect(p.dir).toBe(0); // ramps follow the closest grid direction
+      expect(p.len).toBeGreaterThan(Math.hypot(6, 2));
+      expect(p.over.length).toBeGreaterThan(4);
+    }
     expect(n.planMotorway(1, 1, 2, 1)).toBe('span');
+    expect(n.planMotorway(0, 0, 14, 0)).toBe('span');
+    // east arm taken: the ramp falls back to the next direction
+    const a = n.addRoad(1, 1)!;
+    n.linkRoad(a, n.addRoad(2, 1)!, 0);
+    const q = n.planMotorway(1, 1, 7, 3);
+    expect(typeof q === 'object' && q.dir).toBe(1);
   });
 });
 

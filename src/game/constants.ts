@@ -55,8 +55,8 @@ export const SPEED_TERMINAL = 0.62;
 
 // ---- Rules ----
 export const MAX_BRIDGE_SPAN = 6; // water tiles
-export const MAX_MOTORWAY_SPAN = 12; // tiles between endpoints
-export const MIN_MOTORWAY_SPAN = 2;
+export const MAX_MOTORWAY_LEN = 13; // distance between endpoint tiles
+export const MIN_MOTORWAY_LEN = 2;
 export const PARK_SLOTS = 4;
 export const PARK_TIME = 0.6;
 /** a demand is late after waiting this long (s) */
@@ -66,7 +66,7 @@ export const LATE_OVERFLOW = 3;
 /** demands piling up beyond this also overflow */
 export const PIN_HARD_CAP = 12;
 export const OVERFLOW_TIME = 45;
-export const CARS_PER_HOUSE = 2;
+export const CARS_PER_HOUSE = 4;
 export const DAY_LENGTH = 10; // seconds
 export const WEEK_DAYS = 7;
 export const STUCK_TIMEOUT = 45;

@@ -1,4 +1,4 @@
-import { DX, DY, opp, isDiag, BOUND, MAX_BRIDGE_SPAN, MAX_MOTORWAY_SPAN, MIN_MOTORWAY_SPAN } from './constants';
+import { DX, DY, UX, UY, opp, isDiag, BOUND, MAX_BRIDGE_SPAN, MAX_MOTORWAY_LEN, MIN_MOTORWAY_LEN } from './constants';
 import type { World } from './world';
 
 export type NodeKind = 'road' | 'house' | 'gate';
@@ -98,8 +98,8 @@ export class Link {
   readonly over: number[];
   /** corner keys crossed (for diagonal links) */
   readonly corners: number[];
-  /** lane length between the two boundary points (0 for adjacent tiles) */
-  readonly laneLen: number;
+  /** travel length between the two node centres */
+  readonly length: number;
   alive = true;
   born = 0;
   /** road class: avenues are faster and have priority at junctions */
@@ -107,7 +107,7 @@ export class Link {
   /** 0 = two-way, 1 = only a -> b, -1 = only b -> a */
   oneway: 0 | 1 | -1 = 0;
 
-  constructor(a: RNode, b: RNode, dir: number, kind: LinkKind, span: number, over: number[], corners: number[]) {
+  constructor(a: RNode, b: RNode, dir: number, kind: LinkKind, span: number, over: number[], corners: number[], length = 0) {
     this.id = nextLinkId++;
     this.a = a;
     this.b = b;
@@ -116,8 +116,7 @@ export class Link {
     this.span = span;
     this.over = over;
     this.corners = corners;
-    const stepLen = isDiag(dir) ? Math.SQRT2 : 1;
-    this.laneLen = Math.max(0, span * stepLen - 2 * BOUND[dir]);
+    this.length = length > 0 ? length : span * (isDiag(dir) ? Math.SQRT2 : 1);
   }
 
   other(n: RNode): RNode {
@@ -173,10 +172,39 @@ export interface MotorwayPlan {
   ay: number;
   bx: number;
   by: number;
+  /** ramp direction at a (b uses the opposite one) */
   dir: number;
   span: number;
+  /** tiles under the deck (excluding the endpoints) */
   over: number[];
-  corners: number[];
+  /** travel length between the two node centres */
+  len: number;
+}
+
+/**
+ * Centre line of a motorway deck from tile a to tile b: a cubic that leaves a
+ * along ramp direction `dir` and lands on b along the same direction, so any
+ * angle works while the ramps stay on the 8-direction grid.
+ * Returns [x0, y0, x1, y1, x2, y2, x3, y3].
+ */
+export function motorwayCurve(ax: number, ay: number, bx: number, by: number, dir: number): number[] {
+  const ux = UX[dir];
+  const uy = UY[dir];
+  const x0 = ax + 0.5 + ux * BOUND[dir];
+  const y0 = ay + 0.5 + uy * BOUND[dir];
+  const x3 = bx + 0.5 - ux * BOUND[dir];
+  const y3 = by + 0.5 - uy * BOUND[dir];
+  const h = Math.hypot(x3 - x0, y3 - y0) * 0.36;
+  return [x0, y0, x0 + ux * h, y0 + uy * h, x3 - ux * h, y3 - uy * h, x3, y3];
+}
+
+function cubicAt(c: number[], t: number): [number, number] {
+  const u = 1 - t;
+  const a = u * u * u;
+  const b = 3 * u * u * t;
+  const k = 3 * u * t * t;
+  const d = t * t * t;
+  return [a * c[0] + b * c[2] + k * c[4] + d * c[6], a * c[1] + b * c[3] + k * c[5] + d * c[7]];
 }
 
 export interface NetworkListener {
@@ -185,7 +213,8 @@ export interface NetworkListener {
 
 /**
  * Road graph: nodes live on tiles, links join two nodes along one of the
- * 8 directions (adjacent tiles for roads, straight lines for bridges & motorways).
+ * 8 directions (adjacent tiles for roads, straight lines for bridges; motorways
+ * leave and land along one of the 8 directions but may run at any angle).
  */
 export class Network {
   readonly world: World;
@@ -194,7 +223,6 @@ export class Network {
   version = 0;
   /** ground-level diagonal corner usage */
   private corners = new Map<number, Link>();
-  private mwCorners = new Map<number, Link>();
   /** water tile -> bridge crossing it */
   readonly bridgeOver = new Map<number, Link>();
   /** tile -> motorway flying over it */
@@ -352,8 +380,7 @@ export class Network {
     l.born = this.now;
     l.a.links[l.dir] = l;
     l.b.links[opp(l.dir)] = l;
-    const cornerMap = l.kind === 'motorway' ? this.mwCorners : this.corners;
-    for (const c of l.corners) cornerMap.set(c, l);
+    for (const c of l.corners) this.corners.set(c, l);
     const overMap = l.kind === 'motorway' ? this.mwOver : l.kind === 'bridge' ? this.bridgeOver : null;
     if (overMap) for (const t of l.over) overMap.set(t, l);
     this.links.add(l);
@@ -370,8 +397,7 @@ export class Network {
     l.alive = false;
     if (l.a.links[l.dir] === l) l.a.links[l.dir] = null;
     if (l.b.links[opp(l.dir)] === l) l.b.links[opp(l.dir)] = null;
-    const cornerMap = l.kind === 'motorway' ? this.mwCorners : this.corners;
-    for (const c of l.corners) if (cornerMap.get(c) === l) cornerMap.delete(c);
+    for (const c of l.corners) if (this.corners.get(c) === l) this.corners.delete(c);
     const overMap = l.kind === 'motorway' ? this.mwOver : l.kind === 'bridge' ? this.bridgeOver : null;
     if (overMap) for (const t of l.over) if (overMap.get(t) === l) overMap.delete(t);
     this.links.delete(l);
@@ -427,56 +453,82 @@ export class Network {
     return this.attach(new Link(plan.from, to, plan.dir, 'bridge', plan.span, plan.over, plan.corners));
   }
 
-  /** Plan a motorway between two tiles (endpoints may be empty land). */
+  /** Plan a motorway between two tiles, in any direction (endpoints may be empty land). */
   planMotorway(ax: number, ay: number, bx: number, by: number): MotorwayPlan | LinkFail {
     const w = this.world;
     const dx = bx - ax;
     const dy = by - ay;
     if (dx === 0 && dy === 0) return 'same';
-    if (dx !== 0 && dy !== 0 && Math.abs(dx) !== Math.abs(dy)) return 'direction';
-    const span = Math.max(Math.abs(dx), Math.abs(dy));
-    if (span < MIN_MOTORWAY_SPAN || span > MAX_MOTORWAY_SPAN) return 'span';
-    let dir = -1;
-    for (let d = 0; d < 8; d++) if (DX[d] === Math.sign(dx) && DY[d] === Math.sign(dy)) dir = d;
-    for (const [x, y, d] of [[ax, ay, dir], [bx, by, opp(dir)]] as [number, number, number][]) {
+    const dist = Math.hypot(dx, dy);
+    if (dist < MIN_MOTORWAY_LEN || dist > MAX_MOTORWAY_LEN + 1e-6) return 'span';
+    for (const [x, y] of [[ax, ay], [bx, by]]) {
       if (!w.inBounds(x, y)) return 'bounds';
       if (!w.isLand(x, y)) return 'water';
-      const i = w.idx(x, y);
-      if (this.reserved.has(i)) return 'occupied';
-      const n = this.nodes.get(i);
-      if (n && (n.kind !== 'road' || n.links[d])) return 'occupied';
-    }
-    const over: number[] = [];
-    const corners: number[] = [];
-    let x = ax;
-    let y = ay;
-    for (let s = 0; s < span; s++) {
-      if (isDiag(dir)) {
-        const k = this.cornerKey(x, y, dir);
-        if (this.mwCorners.has(k)) return 'cross';
-        corners.push(k);
-      }
-      x += DX[dir];
-      y += DY[dir];
-      if (s < span - 1) {
-        if (!w.inBounds(x, y)) return 'bounds';
-        const i = w.idx(x, y);
-        if (this.mwOver.has(i)) return 'cross';
-        // cannot fly over another motorway's ramp either
-        const n = this.nodes.get(i);
-        if (n && n.links.some((l) => l !== null && l.kind === 'motorway')) return 'cross';
-        over.push(i);
-      }
+      if (this.reserved.has(w.idx(x, y))) return 'occupied';
+      const n = this.nodeAt(x, y);
+      if (n && n.kind !== 'road') return 'occupied';
     }
     // endpoints cannot sit under another motorway deck
     if (this.mwOver.has(w.idx(ax, ay)) || this.mwOver.has(w.idx(bx, by))) return 'cross';
-    return { ax, ay, bx, by, dir, span, over, corners };
+    // ramps use the grid direction closest to the line, or the next one if that arm is taken
+    const oct = Math.atan2(dy, dx) / (Math.PI / 4);
+    const d0 = (Math.round(oct) + 8) % 8;
+    const off = oct - Math.round(oct);
+    const cand = Math.abs(off) < 1e-6 ? [d0] : [d0, (d0 + (off > 0 ? 1 : 7)) % 8];
+    let fail: LinkFail = 'occupied';
+    for (const dir of cand) {
+      if (this.nodeAt(ax, ay)?.links[dir] || this.nodeAt(bx, by)?.links[opp(dir)]) continue;
+      const plan = this.traceMotorway(ax, ay, bx, by, dir);
+      if (typeof plan !== 'string') return plan;
+      fail = plan;
+    }
+    return fail;
+  }
+
+  /** Tiles under a motorway deck, checked against other motorways. */
+  private traceMotorway(ax: number, ay: number, bx: number, by: number, dir: number): MotorwayPlan | LinkFail {
+    const w = this.world;
+    const c = motorwayCurve(ax, ay, bx, by, dir);
+    const ia = w.idx(ax, ay);
+    const ib = w.idx(bx, by);
+    const tiles = new Set<number>();
+    let len = 0;
+    let [px, py] = cubicAt(c, 0);
+    const steps = 96;
+    for (let k = 0; k <= steps; k++) {
+      const [x, y] = cubicAt(c, k / steps);
+      len += Math.hypot(x - px, y - py);
+      // deck footprint: centre line plus both edges
+      const tx = x - px;
+      const ty = y - py;
+      const tl = Math.hypot(tx, ty) || 1;
+      for (const o of [-0.2, 0, 0.2]) {
+        const qx = Math.floor(x - (ty / tl) * o);
+        const qy = Math.floor(y + (tx / tl) * o);
+        if (!w.inMap(qx, qy)) return 'bounds';
+        const i = w.idx(qx, qy);
+        if (i !== ia && i !== ib) tiles.add(i);
+      }
+      px = x;
+      py = y;
+    }
+    for (const i of tiles) {
+      if (!w.inBounds(i % w.w, Math.floor(i / w.w))) return 'bounds';
+      if (this.mwOver.has(i)) return 'cross';
+      // cannot fly over another motorway's ramp either
+      const n = this.nodes.get(i);
+      if (n && n.links.some((l) => l !== null && l.kind === 'motorway')) return 'cross';
+    }
+    return {
+      ax, ay, bx, by, dir, span: Math.max(Math.abs(bx - ax), Math.abs(by - ay)), over: [...tiles],
+      len: len + 2 * BOUND[dir],
+    };
   }
 
   buildMotorway(plan: MotorwayPlan, a: RNode, b: RNode): Link | null {
     if (a.kind !== 'road' || b.kind !== 'road') return null;
     if (a.links[plan.dir] || b.links[opp(plan.dir)]) return null;
-    return this.attach(new Link(a, b, plan.dir, 'motorway', plan.span, plan.over, plan.corners));
+    return this.attach(new Link(a, b, plan.dir, 'motorway', plan.span, plan.over, [], plan.len));
   }
 
   /** Number of plain road tiles (what the player pays for). */

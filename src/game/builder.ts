@@ -1,4 +1,4 @@
-import { DX, DY, opp, isDiag, MIN_MOTORWAY_SPAN, MAX_MOTORWAY_SPAN } from './constants';
+import { DX, DY, opp, isDiag, MIN_MOTORWAY_LEN, MAX_MOTORWAY_LEN } from './constants';
 import type { Game } from './game';
 import { RULE_AUTO, RULE_AXIS, RULE_NOLEFT, type Link, type MotorwayPlan, type RNode, type RoadTier } from './network';
 
@@ -54,7 +54,7 @@ export class Builder {
   private strokeCount = 0;
   private erasedTiles = new Set<number>();
   /** motorway preview state */
-  mw: { ax: number; ay: number; bx: number; by: number; plan: MotorwayPlan | null; ok: boolean } | null = null;
+  mw: { ax: number; ay: number; bx: number; by: number; dir: number; plan: MotorwayPlan | null; ok: boolean } | null = null;
   /** the tile a tap tool would affect */
   hover: { x: number; y: number } | null = null;
 
@@ -92,7 +92,7 @@ export class Builder {
     else if (tool === 'motorway') {
       const tx = Math.floor(x);
       const ty = Math.floor(y);
-      this.mw = { ax: tx, ay: ty, bx: tx, by: ty, plan: null, ok: false };
+      this.mw = { ax: tx, ay: ty, bx: tx, by: ty, dir: 0, plan: null, ok: false };
     }
   }
 
@@ -584,17 +584,22 @@ export class Builder {
   private updateMotorway(x: number, y: number): void {
     const mw = this.mw;
     if (!mw) return;
-    const vx = x - (mw.ax + 0.5);
-    const vy = y - (mw.ay + 0.5);
-    const ang = Math.atan2(vy, vx);
-    const d = (Math.round(ang / (Math.PI / 4)) + 8) % 8;
-    const ux = DX[d];
-    const uy = DY[d];
-    const proj = (vx * ux + vy * uy) / (ux * ux + uy * uy);
-    const k = Math.max(0, Math.min(MAX_MOTORWAY_SPAN, Math.round(proj)));
-    mw.bx = mw.ax + ux * k;
-    mw.by = mw.ay + uy * k;
-    if (k < MIN_MOTORWAY_SPAN) {
+    // free direction: the far end is the tile under the pointer, pulled back to the maximum length
+    let vx = x - (mw.ax + 0.5);
+    let vy = y - (mw.ay + 0.5);
+    const len = Math.hypot(vx, vy);
+    if (len > MAX_MOTORWAY_LEN) {
+      vx *= MAX_MOTORWAY_LEN / len;
+      vy *= MAX_MOTORWAY_LEN / len;
+    }
+    mw.bx = Math.floor(mw.ax + 0.5 + vx);
+    mw.by = Math.floor(mw.ay + 0.5 + vy);
+    if (Math.hypot(mw.bx - mw.ax, mw.by - mw.ay) > MAX_MOTORWAY_LEN) {
+      mw.bx -= Math.sign(vx);
+      mw.by -= Math.sign(vy);
+    }
+    mw.dir = (Math.round(Math.atan2(mw.by - mw.ay, mw.bx - mw.ax) / (Math.PI / 4)) + 8) % 8;
+    if (Math.hypot(mw.bx - mw.ax, mw.by - mw.ay) < MIN_MOTORWAY_LEN) {
       mw.plan = null;
       mw.ok = false;
       return;
@@ -606,6 +611,7 @@ export class Builder {
       return;
     }
     mw.plan = plan;
+    mw.dir = plan.dir;
     let cost = 0;
     if (!this.net.nodeAt(mw.ax, mw.ay)) cost++;
     if (!this.net.nodeAt(mw.bx, mw.by)) cost++;

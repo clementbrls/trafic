@@ -409,7 +409,11 @@ button:focus-visible {
   padding: 4px;
   border-radius: 999px;
   pointer-events: auto;
-  animation: toastIn 0.25s ease;
+  animation: typesIn 0.25s ease;
+}
+
+@keyframes typesIn {
+  0% { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
 }
 
 .types.gone {

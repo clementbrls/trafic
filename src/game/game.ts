@@ -1,4 +1,5 @@
 import { Rng } from '../core/rng';
+import { clamp } from '../core/math';
 import {
   DX, DY, TERM, opp, PIN_PATIENCE, LATE_OVERFLOW, PIN_HARD_CAP, OVERFLOW_TIME, CARS_PER_HOUSE, DAY_LENGTH, WEEK_DAYS, COLOR_COUNT,
 } from './constants';
@@ -46,22 +47,24 @@ export const UNLOCK_RULES_WEEK = 3;
 
 /** free roads given at the end of week w (grows with the city) */
 export function weekBonusRoads(week: number): number {
-  return 11 + Math.min(12, week);
+  return 8 + Math.min(10, week);
 }
-/** a destination stops attracting new houses once it has this many nearby */
-const HOUSES_PER_DEST = 7;
+/** a destination stops attracting new houses once it serves this many */
+const HOUSES_PER_DEST = 4;
+/** houses per residential district */
+const DISTRICT_CAP = 3;
 /** trips per second asked by one house at the start of the game */
-const HOUSE_RATE = 0.055;
+const HOUSE_RATE = 0.062;
 /** growth of that rate (quadratic in minutes: flat early, steep late) */
-const DEMAND_GROWTH = 0.0026;
+const DEMAND_GROWTH = 0.0021;
 /** a destination always has at least this much demand, even without houses */
-const MIN_HOUSEHOLDS = 1.5;
+const MIN_HOUSEHOLDS = 1;
 /** demand of a destination counts at most this many households */
-const HOUSEHOLD_CAP = 8;
+const HOUSEHOLD_CAP = 5;
 /** seconds between house spawns: start, floor, and decrease per minute */
-const HOUSE_EVERY_START = 18;
-const HOUSE_EVERY_MIN = 3;
-const HOUSE_EVERY_DROP = 1.3;
+const HOUSE_EVERY_START = 28;
+const HOUSE_EVERY_MIN = 5;
+const HOUSE_EVERY_DROP = 2;
 /** seconds before an unconnected destination starts asking (the first one leaves time to read the tutorial) */
 const FIRST_GRACE = 20;
 const DEST_GRACE = 8;
@@ -74,6 +77,16 @@ const DEST_SCHEDULE = [0, 48, 112, 180, 255, 330, 410, 490, 575, 660, 750, 840, 
 /** indexes (in spawn order) that introduce a new colour */
 const NEW_COLOR_AT = new Set([0, 1, 3, 5, 8, 11]);
 
+/** a residential neighbourhood: houses of one colour grow around its centre, away from the buildings */
+export interface District {
+  color: number;
+  x: number;
+  y: number;
+  houses: House[];
+  /** no room left around the centre */
+  full: boolean;
+}
+
 export class Game implements TrafficHost {
   readonly preset: MapPreset;
   readonly world: World;
@@ -83,6 +96,7 @@ export class Game implements TrafficHost {
   readonly portrait: boolean;
   readonly houses: House[] = [];
   readonly dests: Destination[] = [];
+  readonly districts: District[] = [];
   readonly events: GameEvent[] = [];
   readonly inv: Inventory;
   /** colour ids in introduction order */
@@ -337,16 +351,105 @@ export class Game implements TrafficHost {
     return best;
   }
 
+  /** nearest destination of a colour to a point */
+  private nearestDest(color: number, x: number, y: number): Destination | null {
+    let best: Destination | null = null;
+    let bd = Infinity;
+    for (const d of this.dests) {
+      if (d.color !== color) continue;
+      const dd = Math.hypot(x - d.cx, y - d.cy);
+      if (dd < bd) {
+        bd = dd;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  /** how far districts sit from their building: grows with the map */
+  private districtRange(): [number, number] {
+    const b = this.world.bounds;
+    const span = Math.min(b.x1 - b.x0, b.y1 - b.y0);
+    return [clamp(span * 0.36, 3.5, 7), clamp(span * 0.68, 6, 12.5)];
+  }
+
+  /** Pick a spot for a new district served by `near`. */
+  private newDistrict(color: number, near: Destination): District | null {
+    const w = this.world;
+    const b = w.bounds;
+    const [rMin, rMax] = this.districtRange();
+    let best: District | null = null;
+    let bestScore = -Infinity;
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const r = this.rng.range(rMin, rMax);
+      const a = this.rng.range(0, Math.PI * 2);
+      const x = near.cx + Math.cos(a) * r;
+      const y = near.cy + Math.sin(a) * r;
+      if (x < b.x0 + 1.5 || y < b.y0 + 1.5 || x > b.x1 - 1.5 || y > b.y1 - 1.5) continue;
+      // served by this building, not by another one of the colour
+      if (this.nearestDest(color, x, y) !== near) continue;
+      // room for a few houses
+      let free = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (this.freeTile(Math.floor(x) + dx, Math.floor(y) + dy)) free++;
+      if (free < 12) continue;
+      let score = free * 0.12 + this.rng.next() * 1.5;
+      // keep clear of the buildings and of the other districts
+      for (const d of this.dests) {
+        const dd = Math.hypot(d.cx - x, d.cy - y);
+        if (dd < 3) score -= (3 - dd) * 2;
+      }
+      for (const q of this.districts) {
+        const dd = Math.hypot(q.x - x, q.y - y);
+        if (dd < 4) score -= (4 - dd) * (q.color === color ? 1 : 2);
+      }
+      // crossing water costs bridges
+      const steps = Math.ceil(r * 2);
+      let water = 0;
+      for (let k = 1; k < steps; k++) {
+        const t = k / steps;
+        if (w.isWater(Math.floor(near.cx + (x - near.cx) * t), Math.floor(near.cy + (y - near.cy) * t))) water++;
+      }
+      score -= water * 0.5;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { color, x, y, houses: [], full: false };
+      }
+    }
+    if (best) this.districts.push(best);
+    return best;
+  }
+
   private spawnHouse(color: number, near: Destination): House | null {
+    // fill the building's districts first, then open a new one
+    let district: District | null = null;
+    for (const q of this.districts) {
+      if (q.color !== color || q.full || q.houses.length >= DISTRICT_CAP) continue;
+      if (this.nearestDest(color, q.x, q.y) !== near) continue;
+      if (!district || q.houses.length > district.houses.length) district = q;
+    }
+    for (let tries = 0; tries < 2; tries++) {
+      if (!district) district = this.newDistrict(color, near);
+      if (!district) return null;
+      const h = this.placeHouseIn(district, color, near);
+      if (h) {
+        district.houses.push(h);
+        return h;
+      }
+      district.full = true;
+      district = null;
+    }
+    return null;
+  }
+
+  private placeHouseIn(district: District, color: number, near: Destination): House | null {
     const w = this.world;
     let best: [number, number] | null = null;
     let bestScore = -Infinity;
-    const sameColor = this.houses.filter((h) => h.color === color);
     for (let attempt = 0; attempt < 90; attempt++) {
-      const r = this.rng.range(2.2, 6.8);
+      const r = this.rng.range(0, 2.6);
       const a = this.rng.range(0, Math.PI * 2);
-      const x = Math.floor(near.cx + Math.cos(a) * r);
-      const y = Math.floor(near.cy + Math.sin(a) * r);
+      const x = Math.floor(district.x + Math.cos(a) * r);
+      const y = Math.floor(district.y + Math.sin(a) * r);
       if (!this.freeTile(x, y)) continue;
       // needs at least one free orthogonal side (or a road) for its driveway
       let exits = 0;
@@ -374,13 +477,13 @@ export class Game implements TrafficHost {
         if (n?.kind === 'gate') crowd += 2;
       }
       if (crowd >= 2) continue;
-      const dd = Math.hypot(x + 0.5 - near.cx, y + 0.5 - near.cy);
-      let score = -dd * 0.35 + Math.min(adj, 2) * 0.9 - crowd * 0.8 + this.rng.next() * 1.6 + exits * 0.15;
-      // stay close to the own-colour cluster
-      if (sameColor.length > 0) {
+      const dd = Math.hypot(x + 0.5 - district.x, y + 0.5 - district.y);
+      let score = -dd * 0.45 + Math.min(adj, 2) * 0.9 - crowd * 0.8 + this.rng.next() * 1.6 + exits * 0.15;
+      // stay close to the district's houses
+      if (district.houses.length > 0) {
         let md = Infinity;
-        for (const h of sameColor) md = Math.min(md, Math.hypot(h.x - x, h.y - y));
-        score -= Math.max(0, md - 3) * 0.3;
+        for (const h of district.houses) md = Math.min(md, Math.hypot(h.x - x, h.y - y));
+        score -= Math.max(0, md - 2) * 0.4;
       }
       if (score > bestScore) {
         bestScore = score;
@@ -463,15 +566,22 @@ export class Game implements TrafficHost {
     return n;
   }
 
+  /** houses of the destination's colour for which it is the nearest building */
+  servedHouses(d: Destination): number {
+    let n = 0;
+    for (const h of this.houses) if (h.color === d.color && this.nearestDest(h.color, h.x + 0.5, h.y + 0.5) === d) n++;
+    return n;
+  }
+
   private spawnHouseByNeed(): void {
     if (this.dests.length === 0) return;
     // every destination grows its own neighbourhood; the ones with few nearby
     // houses, long trips or waiting customers get served first
     const weights = this.dests.map((d) => {
-      const near = this.nearbyHouses(d);
-      if (near >= HOUSES_PER_DEST) return 0;
+      const served = this.servedHouses(d);
+      if (served >= HOUSES_PER_DEST) return 0;
       const age = (this.time - d.born) / 60;
-      return (1 / (1 + near)) * (1 + d.tripTime / 14) * (1 + 0.12 * d.pins) * (age < 1.5 ? 1.6 : 1);
+      return (1 / (1 + served)) * (1 + d.tripTime / 14) * (1 + 0.12 * d.pins) * (age < 1.5 ? 1.6 : 1);
     });
     const di = this.rng.weighted(weights);
     if (di < 0) return;

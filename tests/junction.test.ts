@@ -143,6 +143,54 @@ describe('long links', () => {
   });
 });
 
+describe('free-angle motorway', () => {
+  it('carries traffic along a slanted deck', async () => {
+    const { Builder } = await import('../src/game/builder');
+    const { LAND } = await import('../src/game/world');
+    const g = new Game(getMap('plaine'), false, 8, { demo: true });
+    const w = g.world;
+    w.bounds = { x0: 0, y0: 0, x1: w.w, y1: w.h };
+    w.terrain.fill(LAND);
+    const dest = g.placeDestination(20, 4, 1, 20, 5, 2); // gate (20,5) facing S -> front (20,6)
+    const b = new Builder(g);
+    g.inv.motorways = 1;
+    g.inv.roads = 100;
+    for (const [x, y] of [[3, 13], [4, 14], [3, 15]]) g.placeHouse(x, y, 1, 0);
+    // houses -> column x=5 -> motorway (5,13) to (16,8) -> east to the gate
+    for (const y of [13, 14, 15]) {
+      b.begin(x0(y), y + 0.5, 'road');
+      b.move(5.5, y + 0.5);
+      b.end();
+    }
+    b.begin(5.5, 15.5, 'road');
+    b.move(5.5, 14.5);
+    b.move(5.5, 13.5);
+    b.end();
+    b.begin(5.5, 13.5, 'motorway');
+    b.move(16.4, 8.6);
+    b.end();
+    const mw = [...g.net.links].find((l) => l.kind === 'motorway');
+    expect(mw).toBeDefined();
+    expect(mw!.b.x - mw!.a.x).toBe(11);
+    expect(mw!.b.y - mw!.a.y).toBe(-5);
+    b.begin(16.5, 8.5, 'road');
+    for (let x = 17; x <= 20; x++) b.move(x + 0.5, 8.5);
+    b.move(20.5, 7.5);
+    b.move(20.5, 6.5);
+    b.move(20.5, 5.5);
+    b.end();
+    for (const h of g.houses) expect(g.houseConnected(h)).toBe(true);
+    const r = runScene(g, dest, 120);
+    console.log('slanted motorway', r);
+    expect(r.score).toBeGreaterThan(15);
+    expect(r.poofs).toBe(0);
+  });
+});
+
+function x0(y: number): number {
+  return y === 14 ? 4.5 : 3.5;
+}
+
 describe('junction control', () => {
   for (const control of ['none', 'light', 'roundabout'] as const) {
     it(`keeps traffic flowing through a cross (${control})`, () => {

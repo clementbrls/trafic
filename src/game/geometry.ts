@@ -1,7 +1,7 @@
 import { polyFromPoints, sampleCubic, sampleLine, discRange, type Poly } from '../core/poly';
 import { clamp, mod, TAU } from '../core/math';
 import { UX, UY, BOUND, DIR_ANGLE, TERM, LANE, RING_R, BOX_R, opp, SPEED_TERMINAL } from './constants';
-import type { Link, RNode } from './network';
+import { motorwayCurve, type Link, type RNode } from './network';
 
 /** Geometry of one way through a node (entry arm -> exit arm). */
 export interface MoveGeom {
@@ -197,7 +197,7 @@ export function moveGeom(n: RNode, entry: number, exit: number): MoveGeom {
 
 const linkCache = new WeakMap<Link, [Poly | null, Poly | null]>();
 
-/** Straight lane of a long link (bridge / motorway), travelling away from `from`. */
+/** Lane of a long link (bridge / motorway), travelling away from `from`. */
 export function linkPoly(l: Link, from: RNode): Poly {
   let c = linkCache.get(l);
   if (!c) {
@@ -211,7 +211,18 @@ export function linkPoly(l: Link, from: RNode): Poly {
     const to = l.other(from);
     const [x0, y0] = outPoint(from, d);
     const [x1, y1] = inPoint(to, opp(d));
-    p = polyFromPoints([x0, y0, x1, y1]);
+    if (l.kind === 'motorway') {
+      // the deck may run at any angle: follow its centre curve, shifted to the right-hand lane
+      const k = motorwayCurve(from.x, from.y, to.x, to.y, d);
+      const ox = x0 - k[0];
+      const oy = y0 - k[1];
+      const pts: number[] = [];
+      const steps = Math.max(4, Math.ceil(l.length * 2));
+      sampleCubic(pts, x0, y0, k[2] + ox, k[3] + oy, k[4] + ox, k[5] + oy, x1, y1, steps);
+      p = polyFromPoints(pts);
+    } else {
+      p = polyFromPoints([x0, y0, x1, y1]);
+    }
     c[idx] = p;
   }
   return p;
