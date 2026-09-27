@@ -146,9 +146,13 @@ const fr = {
   loading: 'Chargement…',
   rotateHint: 'Astuce : pince pour zoomer.',
   stats: '{roads} routes · {cars} voitures max',
-  share: 'Partager',
-  shareText: 'J\'ai réalisé {n} trajets dans Trafic ({map}) !',
-  copied: 'Copié !',
+  continueFree: 'Continuer en mode libre',
+  continueFreeHint: 'La ville continue, mais plus rien ne peut te faire perdre. Ton score est déjà enregistré.',
+  freeMode: 'Mode libre',
+  freeModeToast: 'Mode libre : construis tranquillement, plus rien ne peut te faire perdre.',
+  alertWarn: 'Un bâtiment sature',
+  alertDanger: 'Débordement dans {n} s',
+  bridgeHint: 'Ponts : ils se posent tout seuls quand tu traces une route au-dessus de l\'eau.',
 };
 
 type Dict = typeof fr;
@@ -299,9 +303,13 @@ const en: Dict = {
   loading: 'Loading…',
   rotateHint: 'Tip: pinch to zoom.',
   stats: '{roads} roads · {cars} cars max',
-  share: 'Share',
-  shareText: 'I completed {n} trips in Trafic ({map})!',
-  copied: 'Copied!',
+  continueFree: 'Keep playing (free mode)',
+  continueFreeHint: 'The city goes on, but nothing can make you lose any more. Your score is already saved.',
+  freeMode: 'Free mode',
+  freeModeToast: 'Free mode: build at your own pace, nothing can make you lose now.',
+  alertWarn: 'A building is filling up',
+  alertDanger: 'Overflow in {n} s',
+  bridgeHint: 'Bridges: laid automatically when you draw a road across water.',
 };
 
 const dicts: Record<Lang, Dict> = { fr, en };

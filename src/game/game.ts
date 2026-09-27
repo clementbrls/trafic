@@ -50,13 +50,13 @@ export function weekBonusRoads(week: number): number {
   return 8 + Math.min(10, week);
 }
 /** a destination stops attracting new houses once it serves this many */
-const HOUSES_PER_DEST = 4;
+const HOUSES_PER_DEST = 3;
 /** houses per residential district */
-const DISTRICT_CAP = 3;
+const DISTRICT_CAP = 2;
 /** trips per second asked by one house at the start of the game */
-const HOUSE_RATE = 0.062;
+const HOUSE_RATE = 0.079;
 /** growth of that rate (quadratic in minutes: flat early, steep late) */
-const DEMAND_GROWTH = 0.0021;
+const DEMAND_GROWTH = 0.0015;
 /** a destination always has at least this much demand, even without houses */
 const MIN_HOUSEHOLDS = 1;
 /** demand of a destination counts at most this many households */
@@ -107,6 +107,8 @@ export class Game implements TrafficHost {
   state: 'play' | 'week' | 'over' = 'play';
   pendingChoices: Upgrade[] = [];
   lostDest: Destination | null = null;
+  /** free mode: the player kept going after losing, buildings can no longer end the game */
+  free = false;
   demo = false;
   private destIndex = 0;
   private destRetry = 0;
@@ -635,6 +637,24 @@ export class Game implements TrafficHost {
     }
   }
 
+  /** how close a destination is to overflowing (0..1, 1 = countdown running) */
+  stress(d: Destination): number {
+    return d.stress(this.time, PIN_PATIENCE, LATE_OVERFLOW, PIN_HARD_CAP);
+  }
+
+  /** Keep playing after a game over, without any way to lose. */
+  continueFree(): void {
+    if (this.state !== 'over') return;
+    this.state = 'play';
+    this.free = true;
+    this.lostDest = null;
+    for (const d of this.dests) {
+      d.timer = 0;
+      d.pins = Math.min(d.pins, 4);
+      d.pinTimes.fill(this.time);
+    }
+  }
+
   syncNetwork(): void {
     if (this.syncedVersion === this.net.version) return;
     this.syncedVersion = this.net.version;
@@ -694,14 +714,15 @@ export class Game implements TrafficHost {
       d.pinClock += this.demandRate(d) * dt;
       if (d.pinClock >= 1) {
         d.pinClock -= 1 + this.rng.range(-0.25, 0.25);
-        d.pins++;
+        // free mode: requests stop piling up once the building is full
+        if (!this.free || d.pins < PIN_HARD_CAP) d.pins++;
       }
       // a building overflows when customers wait too long (or pile up)
       const late = d.lateCount(this.time, PIN_PATIENCE);
       if (late >= LATE_OVERFLOW || d.pins >= PIN_HARD_CAP) {
         if (d.timer === 0) this.events.push({ type: 'overflow', dest: d });
-        d.timer += dt;
-        if (d.timer >= OVERFLOW_TIME && !this.demo) {
+        d.timer = Math.min(d.timer + dt, OVERFLOW_TIME);
+        if (d.timer >= OVERFLOW_TIME && !this.demo && !this.free) {
           this.state = 'over';
           this.lostDest = d;
           this.events.push({ type: 'over', dest: d });

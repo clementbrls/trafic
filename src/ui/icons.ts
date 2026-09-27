@@ -24,7 +24,7 @@ export const icons = {
   check: svg('<path d="m5 12.5 4.5 4.5L19 7"/>'),
   sound: svg('<path d="M11 5 6 9H3v6h3l5 4Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
-  share: svg('<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6 12 2 8 6M12 2v13"/>'),
+  warn: svg('<path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4.5"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>'),
   car: svg('<rect x="3" y="8" width="18" height="9" rx="3"/><path d="M6.5 8 8 4.8A1.5 1.5 0 0 1 9.4 4h5.2a1.5 1.5 0 0 1 1.4.8L17.5 8"/><circle cx="7.5" cy="17" r="1.6" fill="currentColor"/><circle cx="16.5" cy="17" r="1.6" fill="currentColor"/>'),
 };
 

@@ -6,7 +6,8 @@ import { Game } from './game/game';
 import { Builder, type Feedback, type RoadType, type Tool } from './game/builder';
 import { AutoBuilder } from './game/autobuild';
 import { getMap, boundsForWeek, type MapId } from './game/maps';
-import { PALETTE, OVERFLOW_TIME, PIN_PATIENCE } from './game/constants';
+import { PALETTE, OVERFLOW_TIME, PIN_PATIENCE, WARN_STRESS } from './game/constants';
+import type { Destination } from './game/entities';
 import { randomSeed } from './core/rng';
 import { sound } from './audio';
 import { storage } from './storage';
@@ -76,7 +77,9 @@ class App {
       roadType: (rt) => this.selectRoadType(rt),
       resume: () => this.resume(),
       restart: () => this.startGame(this.mapId),
+      continueFree: () => this.continueFree(),
       menu: () => this.toMenu(),
+      focusAlert: () => this.focusAlert(),
       choose: (i) => this.chooseUpgrade(i),
       recenter: () => this.recenter(),
       settingsChanged: () => this.applySettings(),
@@ -498,7 +501,7 @@ class App {
     if (running) this.updateAdvice(g, dt * this.speed);
 
     // periodic warning while something overflows
-    const danger = g.dests.some((d) => d.timer > OVERFLOW_TIME * 0.35);
+    const danger = !g.free && g.dests.some((d) => d.timer > OVERFLOW_TIME * 0.35);
     if (danger && running) {
       this.warnClock -= dt;
       if (this.warnClock <= 0) {
@@ -518,6 +521,7 @@ class App {
       speed: this.speed,
       zoomedIn: cam.manual && cam.isZoomedIn,
       heat: this.heat,
+      alert: this.alertState(g),
     });
     cam.update(dt);
   }
@@ -552,6 +556,7 @@ class App {
           this.renderer.cam.focus(e.dest.cx, e.dest.cy, this.renderer.cam.zoom * 1.7);
           break;
         case 'overflow':
+          if (g.free) break;
           if (!this.overflowToasted.has(e.dest.id)) {
             this.overflowToasted.add(e.dest.id);
             this.ui.toast(t('toast_overflow'), true, 3200);
@@ -718,6 +723,46 @@ class App {
         this.tipCooldown = 20;
       }
     }
+  }
+
+  /** the building closest to overflowing, if one is worth warning about */
+  private urgentDest(g: Game): Destination | null {
+    let best: Destination | null = null;
+    let top = WARN_STRESS;
+    for (const d of g.dests) {
+      const s = g.stress(d) + d.timer / OVERFLOW_TIME;
+      if (s >= top) {
+        top = s;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  private alertState(g: Game): { level: 'warn' | 'danger'; seconds: number; color: number } | null {
+    if (g.state !== 'play' || g.free) return null;
+    const d = this.urgentDest(g);
+    if (!d) return null;
+    return { level: d.timer > 0 ? 'danger' : 'warn', seconds: Math.max(1, Math.ceil(OVERFLOW_TIME - d.timer)), color: d.color };
+  }
+
+  private focusAlert(): void {
+    const g = this.game;
+    if (!g) return;
+    const d = this.urgentDest(g);
+    if (d) this.renderer.cam.focus(d.cx, d.cy, this.renderer.cam.zoom);
+  }
+
+  /** After a game over: close the summary and let the city run on, without any way to lose. */
+  private continueFree(): void {
+    const g = this.game;
+    if (!g || g.state !== 'over') return;
+    g.continueFree();
+    this.overTimer = -1;
+    this.paused = false;
+    this.ui.closeScreen();
+    this.recenter();
+    this.ui.toast(t('freeModeToast'), false, 3600);
   }
 
   private showGameOver(g: Game): void {

@@ -107,6 +107,17 @@ export class Destination {
     return k;
   }
 
+  /**
+   * How close the building is to overflowing: 0 calm .. 1 countdown running.
+   * The countdown starts when `lateMax` demands are late or `cap` are waiting.
+   */
+  stress(now: number, patience: number, lateMax: number, cap: number): number {
+    if (this.timer > 0) return 1;
+    const k = lateMax - 1;
+    const byAge = this.pinTimes.length > k ? (now - this.pinTimes[k]) / patience : 0;
+    return Math.min(1, Math.max(byAge, this.pins / cap));
+  }
+
   /** age of the oldest demand */
   oldestAge(now: number): number {
     return this.pinTimes.length ? now - this.pinTimes[0] : 0;

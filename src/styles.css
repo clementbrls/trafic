@@ -463,6 +463,92 @@ button:focus-visible {
   stroke: rgba(43, 27, 5, 0.18);
 }
 
+.week.free .wk {
+  font-weight: 800;
+  color: var(--ok);
+}
+
+/* bridge stock, shown on the road tool (bridges are laid by drawing roads) */
+.tool .count.bridges {
+  right: auto;
+  left: 3px;
+  gap: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px 0 3px;
+}
+
+.tool .count.bridges svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.4;
+}
+
+.tool .count.bridges.empty {
+  background: var(--danger);
+  color: #fff;
+}
+
+.tool .count.bridges.gone {
+  display: none;
+}
+
+/* overflow alert: always on screen, tap to jump to the building */
+.alert {
+  position: absolute;
+  top: calc(var(--safe-top) + 70px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px 0 11px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #f2a33a;
+  color: #2b1b05;
+  border-color: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: typesIn 0.25s ease;
+}
+
+.alert .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.alert .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.alert.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.alert.urgent {
+  animation: alertBeat 0.6s ease-in-out infinite;
+}
+
+@keyframes alertBeat {
+  50% { transform: translateX(-50%) scale(1.07); }
+}
+
+.alert.gone {
+  display: none;
+}
+
+.hud.alerting .toasts {
+  top: calc(var(--safe-top) + 118px);
+}
+
 .round-btn[data-speed]:not([data-speed=''])::after {
   content: attr(data-speed);
   position: absolute;
@@ -1249,6 +1335,13 @@ button:focus-visible {
     display: none;
   }
 
+  .tool .count.bridges {
+    top: auto;
+    bottom: 1px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
   .week .txt .wk {
     display: none;
   }
@@ -1272,6 +1365,13 @@ button:focus-visible {
 
   .tool .name {
     display: none;
+  }
+
+  .tool .count.bridges {
+    top: auto;
+    bottom: 1px;
+    left: 50%;
+    transform: translateX(-50%);
   }
 
   .hud-top {

@@ -65,6 +65,8 @@ export const PIN_PATIENCE = 30;
 export const LATE_OVERFLOW = 3;
 /** demands piling up beyond this also overflow */
 export const PIN_HARD_CAP = 12;
+/** stress (0..1) from which a building shows it is about to overflow */
+export const WARN_STRESS = 0.6;
 export const OVERFLOW_TIME = 45;
 export const CARS_PER_HOUSE = 4;
 export const DAY_LENGTH = 10; // seconds

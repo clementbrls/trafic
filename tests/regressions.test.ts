@@ -5,7 +5,7 @@ import { Builder } from '../src/game/builder';
 import { World } from '../src/game/world';
 import { Network } from '../src/game/network';
 import { findRoute } from '../src/game/pathfind';
-import { TERM } from '../src/game/constants';
+import { TERM, PIN_HARD_CAP, WARN_STRESS } from '../src/game/constants';
 
 function demo() {
   const g = new Game(getMap('plaine'), false, 21, { demo: true });
@@ -107,5 +107,33 @@ describe('review regressions', () => {
     b.tap(14.5, 10.5, 'roundabout');
     expect(node.control).toBe('roundabout');
     expect(node.noLeft).toBe(false);
+  });
+
+  it('warns before a building overflows, then keeps playing in free mode', () => {
+    const g = new Game(getMap('plaine'), false, 5);
+    let warned = -1;
+    let counted = -1;
+    // nobody builds anything: the first building ends the game on its own
+    while (g.state !== 'over' && g.time < 600) {
+      if (g.state === 'week') g.chooseUpgrade(0);
+      g.step(1 / 60);
+      g.events.length = 0;
+      const d = g.dests[0];
+      if (warned < 0 && g.stress(d) >= WARN_STRESS) warned = g.time;
+      if (counted < 0 && d.timer > 0) counted = g.time;
+    }
+    expect(g.state).toBe('over');
+    expect(warned).toBeGreaterThan(0);
+    expect(counted).toBeGreaterThan(warned + 5); // the warning comes well before the countdown
+    g.continueFree();
+    expect(g.state).toBe('play');
+    expect(g.free).toBe(true);
+    while (g.time < 900) {
+      if (g.state === 'week') g.chooseUpgrade(0);
+      g.step(1 / 60);
+      g.events.length = 0;
+    }
+    expect(g.state).not.toBe('over');
+    for (const d of g.dests) expect(d.pins).toBeLessThanOrEqual(PIN_HARD_CAP);
   });
 });

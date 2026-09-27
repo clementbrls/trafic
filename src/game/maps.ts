@@ -15,7 +15,7 @@ export interface MapPreset {
 }
 
 export const MAPS: MapPreset[] = [
-  { id: 'plaine', seed: 1307, difficulty: 1, startBridges: 0, bridgeWeight: 0.6, demand: 0.92 },
+  { id: 'plaine', seed: 1307, difficulty: 1, startBridges: 0, bridgeWeight: 0.6, demand: 0.95 },
   { id: 'riviere', seed: 4242, difficulty: 2, startBridges: 2, bridgeWeight: 1.4, demand: 1.0 },
   { id: 'archipel', seed: 777, difficulty: 3, startBridges: 3, bridgeWeight: 2.4, demand: 1.06 },
 ];

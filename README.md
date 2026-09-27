@@ -21,7 +21,7 @@ The game runs **entirely client-side** (no server): desktop, tablet and phone, i
 - Every **house** owns four cars. **Buildings** ask for trips (white dots) that cars of their colour come to fulfil: each delivery scores 1 point.
 - Houses grow in **districts**, away from their building and further out as the city expands: flows of different colours cross each other, so you need real arterial roads.
 - A new building starts asking as soon as a house can reach it (or after a few seconds).
-- When a building piles up too many requests, a countdown starts. If it runs out, the game is over.
+- When a building piles up too many requests, a countdown starts. If it runs out, the game is over, but you can keep the city running in **free mode**, where nothing can make you lose.
 - Every **week**, the map grows, you receive roads and you pick an upgrade.
 - Built for phones first: every tool is a drag or a tap, and the portrait layout fits a 375 px wide screen.
 
@@ -38,14 +38,14 @@ The game runs **entirely client-side** (no server): desktop, tablet and phone, i
 | **Roundabout** | Several cars move at once; entering cars give way to the ring. |
 | **Traffic lights** | Alternating phases that adapt to demand. |
 | **Motorway** | A fast lane flying over everything, in any direction (up to 13 tiles). Its ramps follow the grid and the deck curves smoothly between them. |
-| **Bridge** | Placed automatically when you draw across water. |
+| **Bridge** | Placed automatically when you draw a road across water (the stock is shown on the Road tool). |
 | **Priority** (week 3) | Tap a junction to cycle: automatic priority → chosen priority road (the others must stop) → no left turns. |
 | **Traffic view** | Colours roads by congestion (green → red). |
 | **Rush hour** | Demand follows a weekly rhythm: busy end of week, quiet weekend. |
 
 Drawing over an existing road with another type converts it (a street becomes an avenue, a one-way road becomes two-way again…).
 
-A building **overflows when its customers wait too long**: each request (white dot) turns orange, then red after 30 s; from 3 late requests on, the countdown starts. White lines on the road show which arms must stop.
+A building **overflows when its customers wait too long**: each request (white dot) turns orange, then red after 30 s; from 3 late requests on, the countdown starts. A building about to overflow gets a dashed amber ring and a "!" badge; during the countdown it glows red, shows the seconds left, and a banner at the top of the screen takes you to it in one tap. White lines on the road show which arms must stop.
 
 ### Which tool for which jam?
 
@@ -65,7 +65,7 @@ Measured in a 4-arm test junction (trips per minute, heavy traffic):
 - **No left turns**: a small gain (a few %) at lights, when a detour exists.
 - **Avenues and motorways** pay off on long trips: on a 17-tile route, a trip takes 13.6 s on streets, 11.5 s on avenues and 11.1 s with a motorway, which also flies over the busy junctions.
 
-Demand comes from the houses: each one asks for trips to the nearest building of its colour, more and more often. The shorter and smoother the round trips, the longer the city lasts. Test bots survive about 15 weeks on Plains and River, and about 12 on Archipelago.
+Demand comes from the houses: each one asks for trips to the nearest building of its colour, more and more often. The shorter and smoother the round trips, the longer the city lasts. Test bots survive about 15 weeks on Plains, 13 to 14 on River and about 10 on Archipelago.
 
 ### Controls
 

@@ -4,7 +4,7 @@ import { makeTheme, type Theme } from './theme';
 import { clamp, easeOutBack, lerp, TAU } from '../core/math';
 import {
   DX, DY, UX, UY, BOUND, PALETTE, ROAD_W, AVE_W, DRIVE_W, CAR_LEN, CAR_WID, RING_R, LANE, OVERFLOW_TIME, PIN_PATIENCE,
-  BOX_R, opp,
+  BOX_R, opp, WARN_STRESS,
 } from '../game/constants';
 import { SEG_LINK } from '../game/car';
 import { inPoint } from '../game/geometry';
@@ -17,6 +17,9 @@ import { polyFromPoints, polyAt, sampleCubic } from '../core/poly';
 import type { Junction } from '../game/traffic';
 import type { Bounds } from '../game/world';
 import type { MapId } from '../game/maps';
+
+/** amber used while a building is about to overflow */
+const WARN_COLOR = '#F2A33A';
 
 function rrect(ctx: CanvasRenderingContext2D | Path2D, x: number, y: number, w: number, h: number, r: number): void {
   const rr = Math.min(r, w / 2, h / 2);
@@ -801,6 +804,21 @@ export class Renderer {
     const pulse = d.pulse > 0 ? 1 + 0.035 * Math.sin(d.pulse * Math.PI) : 1;
     const cx = d.cx;
     const cy = d.cy;
+    // a building about to overflow glows (amber), then burns red during the countdown
+    const stress = game.stress(d);
+    if (stress >= WARN_STRESS && !game.free) {
+      const hot = d.timer > 0;
+      const beat = 0.5 + 0.5 * Math.sin(this.time * (hot ? 7 : 4));
+      const r = 1.95 + beat * 0.12;
+      const g = ctx.createRadialGradient(cx, cy, 0.6, cx, cy, r);
+      const rgb = hot ? '229,72,59' : '242,163,58';
+      g.addColorStop(0, `rgba(${rgb},${(hot ? 0.34 : 0.22) + beat * 0.12})`);
+      g.addColorStop(1, `rgba(${rgb},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, TAU);
+      ctx.fill();
+    }
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(s * pulse, s * pulse);
@@ -897,21 +915,34 @@ export class Renderer {
       ctx.arc(x, y, 0.05, 0, TAU);
       ctx.fill();
     }
+    if (game.free) return;
     if (d.timer > 0) {
       const prog = clamp(d.timer / OVERFLOW_TIME, 0, 1);
-      const pulse = prog > 0.5 ? 0.5 + 0.5 * Math.sin(this.time * (4 + prog * 6)) : 0;
-      const R = 1.5 + pulse * 0.05;
+      const pulse = 0.5 + 0.5 * Math.sin(this.time * (5 + prog * 7));
+      const R = 1.5 + pulse * 0.06;
       ctx.lineCap = 'round';
-      ctx.strokeStyle = th.dark ? 'rgba(255,255,255,0.12)' : 'rgba(40,30,20,0.12)';
-      ctx.lineWidth = 0.14;
+      ctx.strokeStyle = th.dark ? 'rgba(255,255,255,0.16)' : 'rgba(40,30,20,0.14)';
+      ctx.lineWidth = 0.2;
       ctx.beginPath();
       ctx.arc(d.cx, d.cy, R, 0, TAU);
       ctx.stroke();
       ctx.strokeStyle = th.danger;
-      ctx.lineWidth = 0.14 + pulse * 0.04;
+      ctx.lineWidth = 0.2 + pulse * 0.05;
       ctx.beginPath();
       ctx.arc(d.cx, d.cy, R, -Math.PI / 2, -Math.PI / 2 + prog * TAU);
       ctx.stroke();
+    } else if (game.stress(d) >= WARN_STRESS) {
+      // about to overflow: a pulsing amber ring
+      const beat = 0.5 + 0.5 * Math.sin(this.time * 4);
+      ctx.strokeStyle = WARN_COLOR;
+      ctx.globalAlpha = 0.45 + beat * 0.45;
+      ctx.lineWidth = 0.12;
+      ctx.setLineDash([0.22, 0.14]);
+      ctx.beginPath();
+      ctx.arc(d.cx, d.cy, 1.5, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1070,16 +1101,44 @@ export class Renderer {
   }
 
   /** arrows at the screen border pointing to overflowing destinations */
+  /**
+   * Screen-space alerts, readable at any zoom: a badge above every building about
+   * to overflow ("!" then the seconds left), or an arrow at the screen edge when it is out of view.
+   */
   private drawOffscreenAlerts(game: Game): void {
     const ctx = this.ctx;
     const cam = this.cam;
     const p = cam.pad;
+    if (game.free || game.state !== 'play') return;
     for (const d of game.dests) {
-      if (d.timer <= 0) continue;
+      const hot = d.timer > 0;
+      if (!hot && game.stress(d) < WARN_STRESS) continue;
+      const tone = hot ? this.theme.danger : WARN_COLOR;
       const sx = cam.toScreenX(d.cx);
       const sy = cam.toScreenY(d.cy);
       const m = 28;
-      if (sx > p.left && sx < this.width - p.right && sy > p.top && sy < this.height - p.bottom) continue;
+      if (sx > p.left && sx < this.width - p.right && sy > p.top && sy < this.height - p.bottom) {
+        const left = OVERFLOW_TIME - d.timer;
+        const beat = hot && left < 10 ? 1 + 0.12 * Math.sin(this.time * 12) : 1;
+        const by = Math.max(p.top + 16, cam.toScreenY(d.y) - 16);
+        ctx.save();
+        ctx.translate(sx, by);
+        ctx.scale(beat, beat);
+        ctx.fillStyle = tone;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 14, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = '800 14px system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(hot ? String(Math.max(1, Math.ceil(left))) : '!', 0, 1);
+        ctx.restore();
+        continue;
+      }
       const x = clamp(sx, p.left + m, this.width - p.right - m);
       const y = clamp(sy, p.top + m, this.height - p.bottom - m);
       const a = Math.atan2(sy - y, sx - x);
@@ -1089,10 +1148,11 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(0, 0, 14, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = this.theme.danger;
+      ctx.strokeStyle = tone;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(0, 0, 14, -Math.PI / 2, -Math.PI / 2 + (d.timer / OVERFLOW_TIME) * TAU);
+      if (hot) ctx.arc(0, 0, 14, -Math.PI / 2, -Math.PI / 2 + (d.timer / OVERFLOW_TIME) * TAU);
+      else ctx.arc(0, 0, 14, 0, TAU);
       ctx.stroke();
       ctx.rotate(a);
       ctx.fillStyle = '#fff';

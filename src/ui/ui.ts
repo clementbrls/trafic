@@ -15,6 +15,8 @@ export interface HudState {
   speed: number;
   zoomedIn: boolean;
   heat: boolean;
+  /** most urgent building: about to overflow (warn) or counting down (danger) */
+  alert: { level: 'warn' | 'danger'; seconds: number; color: number } | null;
 }
 
 export interface UiHandlers {
@@ -26,7 +28,11 @@ export interface UiHandlers {
   roadType(t: RoadType): void;
   resume(): void;
   restart(): void;
+  /** keep playing after a game over, without losing */
+  continueFree(): void;
   menu(): void;
+  /** move the camera to the most urgent building */
+  focusAlert(): void;
   choose(i: number): void;
   recenter(): void;
   settingsChanged(): void;
@@ -124,6 +130,11 @@ export class Ui {
   private toolBtns = new Map<Tool | 'bridge', HTMLButtonElement>();
   private toolCounts = new Map<Tool | 'bridge', HTMLElement>();
   private toasts!: HTMLElement;
+  private alertBtn!: HTMLButtonElement;
+  private alertTxt!: HTMLElement;
+  private alertDot!: HTMLElement;
+  private bridgeBadge!: HTMLElement;
+  private bridgeNum!: HTMLElement;
   private toolHintEl!: HTMLElement;
   private hintEl: HTMLElement | null = null;
   private screen: HTMLElement | null = null;
@@ -210,21 +221,18 @@ export class Ui {
       this.toolCounts.set(tool, count);
       this.toolbar.append(btn);
     }
-    // bridges are not a tool (they are placed automatically) but we show the stock
-    const bCount = h('span', { class: 'count' }, '0');
-    const bBtn = h('button', {
-      class: 'tool',
-      'aria-label': t('tool_bridge'),
-      title: t('upgradeDesc_bridge'),
-      onclick: () => { H.click(); this.toast(t('upgradeDesc_bridge')); },
-    }, icons.bridge, h('span', { class: 'name' }, t('tool_bridge')), bCount);
-    this.toolBtns.set('bridge', bBtn);
-    this.toolCounts.set('bridge', bCount);
-    this.toolbar.insertBefore(bBtn, this.toolBtns.get('roundabout') as HTMLElement);
+    // bridges are not a tool: the road tool lays them over water, so their stock sits on it
+    this.bridgeNum = h('b', null, '0');
+    this.bridgeBadge = h('span', { class: 'count bridges gone', title: t('bridgeHint') }, icons.bridge, this.bridgeNum);
+    this.toolBtns.get('road')?.append(this.bridgeBadge);
+
+    this.alertDot = h('span', { class: 'dot' });
+    this.alertTxt = h('span', null, '');
+    this.alertBtn = h('button', { class: 'alert panel gone', onclick: () => { H.click(); H.focusAlert(); } }, icons.warn, this.alertDot, this.alertTxt);
 
     this.toasts = h('div', { class: 'toasts' });
     this.toolHintEl = h('div', { class: 'tool-hint panel' }, '');
-    this.hud = h('div', { class: 'hud hidden' }, top, this.typeBar, this.toolbar, this.recenterBtn, this.toolHintEl, this.toasts);
+    this.hud = h('div', { class: 'hud hidden' }, top, this.typeBar, this.toolbar, this.recenterBtn, this.alertBtn, this.toolHintEl, this.toasts);
     this.root.append(this.hud);
     this.lastPaused = null;
   }
@@ -256,10 +264,22 @@ export class Ui {
     const days = t('days').split(',');
     const dayTxt = days[game.day] ?? '';
     if (this.weekDay.textContent !== dayTxt) this.weekDay.textContent = dayTxt;
-    const rush = game.isRush;
-    const lbl = rush ? t('rush') : t('week', { n: game.week });
+    const rush = game.isRush && !game.free;
+    const lbl = game.free ? t('freeMode') : rush ? t('rush') : t('week', { n: game.week });
     if (this.weekLbl.textContent !== lbl) this.weekLbl.textContent = lbl;
     this.weekBox.classList.toggle('rush', rush);
+    this.weekBox.classList.toggle('free', game.free);
+    // overflow alert: always visible, tap to jump to the building
+    const al = st.alert;
+    this.alertBtn.classList.toggle('gone', !al);
+    this.hud.classList.toggle('alerting', !!al);
+    if (al) {
+      this.alertBtn.classList.toggle('danger', al.level === 'danger');
+      this.alertBtn.classList.toggle('urgent', al.level === 'danger' && al.seconds <= 10);
+      const txt = al.level === 'danger' ? t('alertDanger', { n: al.seconds }) : t('alertWarn');
+      if (this.alertTxt.textContent !== txt) this.alertTxt.textContent = txt;
+      this.alertDot.style.background = PALETTE[al.color].base;
+    }
     const c = 2 * Math.PI * 14;
     this.weekRing.setAttribute('stroke-dashoffset', String(c * (1 - game.weekProgress)));
     if (this.lastPaused !== paused) {
@@ -274,8 +294,13 @@ export class Ui {
 
     const inv = game.inv;
     const counts: Record<string, number> = {
-      road: inv.roads, bridge: inv.bridges, roundabout: inv.roundabouts, light: inv.lights, motorway: inv.motorways,
+      road: inv.roads, roundabout: inv.roundabouts, light: inv.lights, motorway: inv.motorways,
     };
+    if (!this.seen.has('bridge') && (inv.bridges > 0 || game.world.waterInBounds() > 0)) this.seen.add('bridge');
+    const bTxt = String(inv.bridges);
+    if (this.bridgeNum.textContent !== bTxt) this.bridgeNum.textContent = bTxt;
+    this.bridgeBadge.classList.toggle('gone', !this.seen.has('bridge'));
+    this.bridgeBadge.classList.toggle('empty', inv.bridges <= 0);
     for (const [k, btn] of this.toolBtns) {
       const cnt = this.toolCounts.get(k) as HTMLElement;
       if (k === 'rules') {
@@ -300,7 +325,7 @@ export class Ui {
   }
 
   shakeTool(tool: Tool | 'bridge'): void {
-    const b = this.toolBtns.get(tool);
+    const b = this.toolBtns.get(tool === 'bridge' ? 'road' : tool);
     if (!b) return;
     b.classList.remove('shake');
     void b.offsetWidth;
@@ -308,7 +333,7 @@ export class Ui {
   }
 
   markFresh(tool: Tool | 'bridge'): void {
-    const b = this.toolBtns.get(tool);
+    const b = this.toolBtns.get(tool === 'bridge' ? 'road' : tool);
     if (!b) return;
     b.classList.remove('fresh');
     void b.offsetWidth;
@@ -607,7 +632,7 @@ export class Ui {
         ),
         h('div', { class: 'btn-col' },
           h('button', { class: 'btn', onclick: () => { H.click(); H.restart(); } }, icons.restart, t('retry')),
-          h('button', { class: 'btn secondary', onclick: () => { H.click(); this.share(d); } }, icons.share, t('share')),
+          h('button', { class: 'btn secondary', title: t('continueFreeHint'), onclick: () => { H.click(); H.continueFree(); } }, icons.play, t('continueFree')),
           h('button', { class: 'btn secondary', onclick: () => { H.click(); H.menu(); } }, icons.home, t('mainMenu')),
         ),
       ),
@@ -615,15 +640,6 @@ export class Ui {
     this.open(el, 'over');
   }
 
-  private share(d: OverData): void {
-    const text = t('shareText', { n: d.score, map: t(`map_${d.map}` as StrKey) });
-    const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
-    if (nav.share) {
-      nav.share({ text, url: location.href }).catch(() => {});
-      return;
-    }
-    navigator.clipboard?.writeText(`${text} ${location.href}`).then(() => this.toast(t('copied')), () => {});
-  }
 }
 
 function upgradeTitle(u: Upgrade): string {
