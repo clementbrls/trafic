@@ -1,0 +1,16 @@
+{
+  "name": "Trafic",
+  "short_name": "Trafic",
+  "description": "Un jeu de gestion de trafic minimaliste : trace des routes, relie les quartiers et évite les bouchons.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#F4EFE6",
+  "theme_color": "#F4EFE6",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

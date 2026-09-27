@@ -1,0 +1,19 @@
+{
+  "name": "trafic",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Trafic — un jeu de gestion de trafic minimaliste dans le navigateur.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
+  }
+}
