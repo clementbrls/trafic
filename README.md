@@ -1,4 +1,4 @@
-# trafic.
+# Trafic
 
 A minimalist traffic management game for the browser, inspired by *Mini Motorways* and *Cities: Skylines + TM:PE*.
 Draw roads to link every house to the building of its colour, then keep the city flowing as it grows.
