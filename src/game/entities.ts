@@ -58,6 +58,8 @@ export class Destination {
   /** overflow timer (seconds) */
   timer = 0;
   pinClock = 0;
+  /** demand has started (grace period over) */
+  live = false;
   born: number;
   /** tiles of the footprint */
   readonly tiles: [number, number][];

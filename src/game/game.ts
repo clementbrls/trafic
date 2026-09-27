@@ -49,22 +49,24 @@ export function weekBonusRoads(week: number): number {
   return 11 + Math.min(12, week);
 }
 /** a destination stops attracting new houses once it has this many nearby */
-const HOUSES_PER_DEST = 8;
+const HOUSES_PER_DEST = 7;
 /** trips per second asked by one house at the start of the game */
-const HOUSE_RATE = 0.03;
-/** growth of that rate per minute (linear and quadratic terms) */
-const DEMAND_LIN = 0.075;
-const DEMAND_QUAD = 0.0035;
+const HOUSE_RATE = 0.055;
+/** growth of that rate (quadratic in minutes: flat early, steep late) */
+const DEMAND_GROWTH = 0.0026;
 /** a destination always has at least this much demand, even without houses */
 const MIN_HOUSEHOLDS = 1.5;
 /** demand of a destination counts at most this many households */
 const HOUSEHOLD_CAP = 8;
 /** seconds between house spawns: start, floor, and decrease per minute */
-const HOUSE_EVERY_START = 11;
+const HOUSE_EVERY_START = 18;
 const HOUSE_EVERY_MIN = 3;
-const HOUSE_EVERY_DROP = 0.6;
-/** the very first destination waits a little longer (time to read the tutorial) */
+const HOUSE_EVERY_DROP = 1.3;
+/** seconds before an unconnected destination starts asking (the first one leaves time to read the tutorial) */
 const FIRST_GRACE = 20;
+const DEST_GRACE = 8;
+/** pin clock when a destination goes live: its first demand shows up right away */
+const FIRST_PIN = 0.9;
 const START_ROADS = 32;
 
 /** Seconds of game time between destination spawns (cumulative schedule). */
@@ -96,7 +98,7 @@ export class Game implements TrafficHost {
   private destRetry = 0;
   private wasRush = false;
   private householdClock = 0;
-  private houseClock = 8;
+  private houseClock = 12;
   private dispatchClock = 0;
   private distVersion = -1;
   private distMaps = new Map<Destination, Map<RNode, number>>();
@@ -260,11 +262,9 @@ export class Game implements TrafficHost {
     }
     this.dests.push(d);
     this.gateMap.set(gate, d);
-    d.pinClock = -12; // grace period
-    d.pinClock = 0.35;
     this.events.push({ type: 'dest', dest: d, newColor });
-    // a couple of houses to get the colour going
-    const n = 2;
+    // a couple of houses to get a new colour going (one for an extra building)
+    const n = newColor ? 2 : 1;
     for (let k = 0; k < n; k++) this.spawnHouse(color, d);
     return d;
   }
@@ -493,7 +493,7 @@ export class Game implements TrafficHost {
   /** trips per second requested by one house (grows as the city gets busier) */
   houseRate(): number {
     const min = (this.demo ? Math.min(this.time, 150) : this.time) / 60;
-    return HOUSE_RATE * (1 + DEMAND_LIN * min + DEMAND_QUAD * min * min);
+    return HOUSE_RATE * (1 + DEMAND_GROWTH * min * min);
   }
 
   /**
@@ -574,7 +574,13 @@ export class Game implements TrafficHost {
     for (const d of this.dests) {
       d.clock = this.time;
       if (d.pulse > 0) d.pulse = Math.max(0, d.pulse - dt * 2.5);
-      if (this.time - d.born < (this.dests[0] === d ? FIRST_GRACE : 12)) continue; // grace period
+      if (!d.live) {
+        // grace period, cut short as soon as a house can reach the building
+        const age = this.time - d.born;
+        if (age < (this.dests[0] === d ? FIRST_GRACE : DEST_GRACE) && !(age > 1 && this.destConnected(d))) continue;
+        d.live = true;
+        d.pinClock = Math.max(d.pinClock, FIRST_PIN);
+      }
       d.pinClock += this.demandRate(d) * dt;
       if (d.pinClock >= 1) {
         d.pinClock -= 1 + this.rng.range(-0.25, 0.25);

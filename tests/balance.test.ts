@@ -23,6 +23,78 @@ describe.skipIf(!enabled)('balance probes', () => {
     }
   }, 900000);
 
+  it('early game: houses vs demand', async () => {
+    const { Game } = await import('../src/game/game');
+    const { getMap } = await import('../src/game/maps');
+    const { AutoBuilder } = await import('../src/game/autobuild');
+    for (const seed of [1, 2, 3]) {
+      const g = new Game(getMap('plaine'), false, seed);
+      const bot = new AutoBuilder(g);
+      bot.free = false;
+      const firstPin = new Map<number, number>();
+      let tick = 0;
+      let pins = 0;
+      let busy = 0;
+      let samples = 0;
+      const lines: string[] = [];
+      while (g.time < 8 * 60 && g.state !== 'over') {
+        if (g.state === 'week') g.chooseUpgrade(0);
+        if (tick % 30 === 0) bot.connectAll();
+        const before = g.dests.reduce((s, d) => s + d.pins + d.delivered, 0);
+        g.step(1 / 60);
+        g.events.length = 0;
+        pins += g.dests.reduce((s, d) => s + d.pins + d.delivered, 0) - before;
+        for (const d of g.dests) if (!firstPin.has(d.id) && (d.pins > 0 || d.delivered > 0)) firstPin.set(d.id, g.time - d.born);
+        if (tick % 10 === 0) {
+          const cars = g.houses.length * 2;
+          busy += cars ? g.houses.reduce((s, h) => s + h.cars.filter((c) => c.state !== 'home').length, 0) / cars : 0;
+          samples++;
+        }
+        if (tick % 3600 === 3599) {
+          lines.push(`${Math.round(g.time / 60)}m: ${g.dests.length}B ${g.houses.length}H demand ${pins}/min cars busy ${Math.round((100 * busy) / samples)}% per house ${(pins / Math.max(1, g.houses.length)).toFixed(2)}/min`);
+          pins = 0;
+          busy = 0;
+          samples = 0;
+        }
+        tick++;
+      }
+      console.log(`seed ${seed}\n  ${lines.join('\n  ')}\n  first pin after spawn: ${g.dests.map((d) => (firstPin.get(d.id) ?? -1).toFixed(0) + 's').join(' ')}`);
+    }
+  }, 300000);
+
+  it('trip lengths', async () => {
+    const { Game } = await import('../src/game/game');
+    const { getMap } = await import('../src/game/maps');
+    const { AutoBuilder } = await import('../src/game/autobuild');
+    for (const seed of [1, 2]) {
+      const g = new Game(getMap('plaine'), false, seed);
+      const bot = new AutoBuilder(g);
+      bot.free = false;
+      let tick = 0;
+      const lines: string[] = [];
+      while (g.time < 15 * 60 && g.state !== 'over') {
+        if (g.state === 'week') g.chooseUpgrade(0);
+        if (tick % 30 === 0) bot.connectAll();
+        g.step(1 / 60);
+        g.events.length = 0;
+        if (tick % (3 * 3600) === 3 * 3600 - 1) {
+          const dist: number[] = [];
+          for (const h of g.houses) {
+            let bd = Infinity;
+            for (const d of g.dests) if (d.color === h.color) bd = Math.min(bd, Math.hypot(h.x + 0.5 - d.cx, h.y + 0.5 - d.cy));
+            if (bd < Infinity) dist.push(bd);
+          }
+          dist.sort((a, b) => a - b);
+          const avg = dist.reduce((s, x) => s + x, 0) / dist.length;
+          const trip = g.dests.reduce((s, d) => s + d.tripTime, 0) / g.dests.length;
+          lines.push(`${Math.round(g.time / 60)}m map ${g.world.bounds.x1 - g.world.bounds.x0}x${g.world.bounds.y1 - g.world.bounds.y0}: house→building avg ${avg.toFixed(1)} tiles (median ${dist[dist.length >> 1].toFixed(1)}, max ${dist[dist.length - 1].toFixed(1)}), trip ${trip.toFixed(1)}s`);
+        }
+        tick++;
+      }
+      console.log(`seed ${seed}\n  ${lines.join('\n  ')}`);
+    }
+  }, 300000);
+
   it('early game pressure', async () => {
     const { Game } = await import('../src/game/game');
     const { getMap } = await import('../src/game/maps');

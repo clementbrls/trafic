@@ -17,6 +17,7 @@ Ouvre l'adresse affichée (`http://localhost:5173`). Pour tester sur ton télép
 ## Principe
 
 - Chaque **maison** possède deux voitures. Les **bâtiments** génèrent des demandes (points blancs) que les voitures de leur couleur viennent satisfaire : chaque livraison rapporte 1 point.
+- Un nouveau bâtiment commence à demander dès qu'il est relié à une maison (ou après quelques secondes).
 - Si un bâtiment accumule trop de demandes, un compte à rebours démarre. S'il arrive au bout, la partie est perdue.
 - Chaque **semaine**, la ville s'agrandit, tu reçois des routes et tu choisis une amélioration.
 
@@ -57,7 +58,7 @@ Mesuré dans un carrefour-laboratoire à 4 branches (trajets/min, trafic chargé
 - **Rond-point** : le meilleur choix dès que beaucoup de voitures tournent.
 - **Interdire de tourner à gauche** : petit gain (quelques %) aux feux, quand un détour existe.
 
-La demande vient des maisons : chacune réclame des trajets vers le bâtiment le plus proche de sa couleur, de plus en plus souvent. Plus les allers-retours sont courts et fluides, plus la ville tient longtemps. Des bots de test tiennent en moyenne ~15 semaines sur Plaine, ~14 sur Rivière et ~10 sur Archipel.
+La demande vient des maisons : chacune réclame des trajets vers le bâtiment le plus proche de sa couleur, de plus en plus souvent. Plus les allers-retours sont courts et fluides, plus la ville tient longtemps. Des bots de test tiennent en moyenne ~15 semaines sur Plaine, ~14 sur Rivière et ~12 sur Archipel.
 
 ### Contrôles
 
