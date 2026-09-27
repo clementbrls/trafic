@@ -75,6 +75,10 @@ export class Car {
   /** time spent waiting at the current stop line */
   waitAt = 0;
   cooldown = 0;
+  /** game time when the current trip was dispatched */
+  dispatchedAt = 0;
+  /** what currently holds the car back (for statistics): 0 free, 1 leader, 2 stop line, 3 lot */
+  limit = 0;
   // parking / lot animation
   anim: Poly | null = null;
   anim2: Poly | null = null;

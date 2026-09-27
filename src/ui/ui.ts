@@ -62,6 +62,45 @@ export interface OverData {
   map: MapId;
   roads: number;
   maxCars: number;
+  avgTrip: number;
+  /** trips per week, the current (unfinished) week last */
+  history: number[];
+}
+
+/** one decimal, localised (4,7 in French) */
+function num(v: number): string {
+  return v.toLocaleString(getLang() === 'fr' ? 'fr-FR' : 'en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+}
+
+function stat(value: string, label: string): HTMLElement {
+  return h('div', { class: 'stat' }, h('b', null, value), h('span', null, label));
+}
+
+/** tiny bar chart of trips per week (last bar highlighted) */
+function weekChart(values: number[]): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  const n = Math.max(1, values.length);
+  const W = 240;
+  const H = 46;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('class', 'week-chart');
+  const max = Math.max(1, ...values);
+  const gap = 3;
+  const bw = Math.min(22, (W - gap * (n - 1)) / n);
+  const x0 = (W - (bw * n + gap * (n - 1))) / 2;
+  values.forEach((v, i) => {
+    const bh = Math.max(2, (v / max) * (H - 4));
+    const r = document.createElementNS(ns, 'rect');
+    r.setAttribute('x', String(x0 + i * (bw + gap)));
+    r.setAttribute('y', String(H - bh));
+    r.setAttribute('width', String(bw));
+    r.setAttribute('height', String(bh));
+    r.setAttribute('rx', String(Math.min(4, bw / 3)));
+    r.setAttribute('class', i === values.length - 1 ? 'bar last' : 'bar');
+    svg.append(r);
+  });
+  return svg;
 }
 
 export class Ui {
@@ -508,9 +547,23 @@ export class Ui {
     this.open(el, 'pause');
   }
 
-  showWeek(week: number, choices: Upgrade[], bonus: number): void {
+  showWeek(week: number, choices: Upgrade[], bonus: number, history: { trips: number; avgTrip: number }[] = []): void {
     const H = this.handlers;
     const grid = h('div', { class: 'choices' });
+    const last = history[history.length - 1];
+    const prev = history[history.length - 2];
+    let recap: HTMLElement | null = null;
+    if (last) {
+      const delta = prev && prev.trips > 0 ? Math.round(((last.trips - prev.trips) / prev.trips) * 100) : null;
+      recap = h('div', { class: 'recap' },
+        weekChart(history.map((w) => w.trips)),
+        h('div', { class: 'recap-txt' },
+          h('b', null, t('recapTrips', { n: last.trips })),
+          delta !== null ? h('span', { class: delta >= 0 ? 'up' : 'down' }, `${delta >= 0 ? '+' : ''}${delta} %`) : null,
+          last.avgTrip > 0 ? h('span', { class: 'muted' }, t('recapAvg', { s: num(last.avgTrip) })) : null,
+        ),
+      );
+    }
     choices.forEach((u, i) => {
       grid.append(h('button', {
         class: 'choice',
@@ -524,6 +577,7 @@ export class Ui {
     const el = h('div', { class: 'screen backdrop' },
       h('div', { class: 'modal center' },
         h('h2', null, t('weekTitle', { n: week - 1 })),
+        recap,
         h('p', { class: 'sub' }, t('weekSub')),
         h('div', { class: 'bonus' }, icons.plus, t('weekBonus', { n: bonus })),
         grid,
@@ -544,6 +598,12 @@ export class Ui {
         h('div', { class: 'row' },
           h('span', null, `${t(`map_${d.map}` as StrKey)} · ${t('overWeeks', { n: d.week })}`),
           h('span', null, `${t('best')} ${Math.max(d.best, d.score)}`),
+        ),
+        d.history.length > 1 ? h('div', { class: 'over-chart' }, weekChart(d.history), h('div', { class: 'muted' }, t('overChart'))) : null,
+        h('div', { class: 'stats' },
+          stat(d.avgTrip > 0 ? `${num(d.avgTrip)} s` : '–', t('statAvgTrip')),
+          stat(String(d.roads), t('statRoads')),
+          stat(String(d.maxCars), t('statCars')),
         ),
         h('div', { class: 'btn-col' },
           h('button', { class: 'btn', onclick: () => { H.click(); H.restart(); } }, icons.restart, t('retry')),

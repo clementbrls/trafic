@@ -17,14 +17,16 @@ import type { Destination } from './entities';
 
 const KEY_NODE = 2048;
 const PLATOON_EXTRA = 0.75;
-const RING_CAP = 5;
-const MIN_GREEN = 2.2;
-const MAX_GREEN = 6.5;
-const CLEAR_MIN = 0.55;
+/** extra request distance for cars that may keep going (green light, through road) */
+const FLOW_EXTRA = 0.7;
+const RING_CAP = 4;
+const MIN_GREEN = 2.6;
+const MAX_GREEN = 9;
+const CLEAR_MIN = 0.5;
 const CLEAR_MAX = 3.5;
 const MINOR_PATIENCE = 5;
 /** speed under which a car counts as stopped at a stop line */
-const STOP_SPEED = 0.32;
+const STOP_SPEED = 0.16;
 /** distance (tiles) at which a car approaching a junction is visible to yielding cars */
 const PRIORITY_WATCH = 1.3;
 
@@ -70,6 +72,10 @@ export class Junction implements JunctionRef {
   clearing = false;
   clearT = 0;
   avgWait = 0;
+  /** smoothed number of cars queuing at the stop lines */
+  queue = 0;
+  /** cars that crossed recently (smoothed per second) */
+  flow = 0;
   /** arms of the through (priority) road; 0 = all arms are equal */
   majorMask = 0;
   /** arms where cars must stop before entering */
@@ -118,7 +124,24 @@ export class Junction implements JunctionRef {
         topCount++;
       }
     }
-    this.majorMask = topCount <= 2 ? topMask : 0;
+    const forced = n.priorityAxis;
+    if (forced >= 0 && n.links[forced] && n.links[forced + 4]) {
+      // the player chose which straight road has priority
+      this.majorMask = (1 << forced) | (1 << (forced + 4));
+    } else if (topCount <= 2) this.majorMask = topMask;
+    else {
+      // the road that goes straight on keeps priority (T junctions); two crossing
+      // straight roads (or a star) are an all-way stop
+      let pairs = 0;
+      let pairMask = 0;
+      for (let d = 0; d < 4; d++) {
+        if (topMask & (1 << d) && topMask & (1 << (d + 4))) {
+          pairs++;
+          pairMask = (1 << d) | (1 << (d + 4));
+        }
+      }
+      this.majorMask = pairs === 1 ? pairMask : 0;
+    }
     this.stopMask = n.armMask() & ~this.majorMask;
     // keep the current phase axis if still present
     const cur = this.phases[this.phase];
@@ -376,6 +399,7 @@ export class Traffic {
   /** Put a car on its way (it waits at home until its lane is clear). */
   dispatch(c: Car, dest: Destination, route: Route): void {
     c.dest = dest;
+    c.dispatchedAt = this.host.now();
     c.segs = this.buildSegs(route, TERM);
     c.i = 0;
     c.s = 0;
@@ -729,6 +753,7 @@ export class Traffic {
     // (handled by the junction grant)
 
     let gap = Math.min(leaderDist - SPACING, stopDist - CAR_LEN / 2 - 0.01, ringGap);
+    c.limit = gap === Infinity ? 0 : leaderDist - SPACING <= gap + 1e-9 ? 1 : stopGate && stopDist - CAR_LEN / 2 - 0.01 <= gap + 1e-9 ? 3 : 2;
     const firstInLine = !leader || leaderDist > stopDist;
     let requested = false;
     if (stopJ && c.ticket === null && stopDist <= PRIORITY_WATCH) {
@@ -736,9 +761,13 @@ export class Traffic {
       stopJ.approaching.push(c);
     }
     if (stopJ && c.ticket === null) {
-      const platoon = !firstInLine && leader !== null && leader.ticket === stopJ &&
-        leader.mEntry === (segs[stopBox].geom as MoveGeom).entry;
-      if ((firstInLine && stopDist <= REQ_DIST) || (platoon && stopDist <= REQ_DIST + PLATOON_EXTRA)) {
+      const entry = (segs[stopBox].geom as MoveGeom).entry;
+      const platoon = !firstInLine && leader !== null && leader.ticket === stopJ && leader.mEntry === entry;
+      // on a green light cars ask early so they keep their speed (on plain
+      // junctions this would starve the yielding side streets)
+      const flows = stopJ.isLight && stopJ.green(entry);
+      const reach = REQ_DIST + (flows ? FLOW_EXTRA : 0);
+      if ((firstInLine && stopDist <= reach) || (platoon && stopDist <= REQ_DIST + PLATOON_EXTRA)) {
         if (c.reqJ !== stopJ) {
           c.reqJ = stopJ;
           c.reqTime = this.host.now();
@@ -749,7 +778,7 @@ export class Traffic {
       }
     } else if (stopGate && firstInLine && stopDist <= REQ_DIST) {
       // reserve a parking slot
-      const slot = stopGate.entryBusy <= 0 ? stopGate.freeSlot() : -1;
+      const slot = stopGate.entryBusy <= 1 ? stopGate.freeSlot() : -1;
       if (slot >= 0) {
         stopGate.slots[slot].car = c;
         c.slot = slot;
@@ -841,7 +870,7 @@ export class Traffic {
         if (sAbs < og.ringIn) pre = og.ringIn - sAbs;
       }
       const to = (pre + up * RING_R) / V;
-      if (to > tc - 0.32 && to < tc + 0.5) return false;
+      if (to > tc - 0.4 && to < tc + 0.62) return false;
     }
     return true;
   }
@@ -880,6 +909,10 @@ export class Traffic {
   private updateJunction(j: Junction, dt: number): void {
     j.refresh();
     j.updateLight(dt);
+    let q = 0;
+    for (const a of j.approaching) if (a.v < 0.35) q++;
+    j.queue += (q - j.queue) * Math.min(1, dt * 0.35);
+    j.flow *= Math.exp(-dt / 20);
     const reqs = j.requests;
     if (reqs.length === 0) return;
     const now = this.host.now();
@@ -937,6 +970,7 @@ export class Traffic {
     c.ticket = j;
     j.inside.push(c);
     j.avgWait += (c.waitAt - j.avgWait) * 0.15;
+    j.flow += 1 / 20;
   }
 
   private move(c: Car, dt: number): void {
@@ -946,13 +980,13 @@ export class Traffic {
     let adv = c.v * dt;
     if (adv > c.gap) adv = c.gap;
     if (adv < 0) adv = 0;
+    // time spent crawling or stopped is charged to the next junction crossed
+    if (c.v < 0.35) c.waitAt += dt;
     if (adv < 1e-4) {
       c.stuck += dt;
-      c.waitAt += dt;
       c.brake = Math.min(1, c.brake + dt * 6);
     } else {
       c.stuck = 0;
-      if (c.v < c.vt * 0.6) c.waitAt += dt * 0.5;
       c.brake = Math.max(0, c.brake - dt * 4);
     }
     if (c.stuck > STUCK_TIMEOUT) {
@@ -1052,7 +1086,7 @@ export class Traffic {
       pts.push(c.x, c.y, c.x + ix * 0.1, c.y + iy * 0.1);
     }
     c.anim = polyFromPoints(pts);
-    c.animDur = 0.25 + c.anim.len / 0.9;
+    c.animDur = 0.18 + c.anim.len / 1.2;
     d.entryBusy++;
     c.v = 0;
   }
@@ -1104,14 +1138,14 @@ export class Traffic {
       sampleCubic(pts, bx, by, bx + (p0.x - bx) * 0.35, by + (p0.y - by) * 0.35, p0.x - hx * 0.18, p0.y - hy * 0.18, p0.x, p0.y, 10);
       c.anim2 = polyFromPoints(pts);
       c.animT = 0;
-      c.animDur = 0.9;
+      c.animDur = 0.6;
       c.state = 'unparking';
       d.exitBusy = 1;
       return;
     }
     if (c.state === 'unparking') {
       c.animT += dt;
-      const t1 = 0.35;
+      const t1 = 0.22;
       if (c.animT < t1) {
         const t = c.animT / t1;
         const p = c.anim as Poly;

@@ -1,5 +1,5 @@
 import { MinHeap } from '../core/heap';
-import { DX, DY, opp } from './constants';
+import { DX, DY, opp, MAX_BRIDGE_SPAN } from './constants';
 import type { Game } from './game';
 import type { House, Destination } from './entities';
 import type { RNode } from './network';
@@ -137,6 +137,30 @@ export class AutoBuilder {
           heap.push(j, nd);
         }
       }
+      // bridges: jump straight over water to the next land tile
+      if (this.free || g.inv.bridges > 0) {
+        for (let d = 0; d < 8; d += 2) {
+          let k = 1;
+          while (k <= MAX_BRIDGE_SPAN && w.isWater(x + DX[d] * k, y + DY[d] * k)) k++;
+          if (k === 1 || k > MAX_BRIDGE_SPAN) continue;
+          const bx = x + DX[d] * k;
+          const by = y + DY[d] * k;
+          if (!w.inBounds(bx, by) || !w.isLand(bx, by)) continue;
+          let clear = true;
+          for (let s = 1; s < k; s++) if (!w.inBounds(x + DX[d] * s, y + DY[d] * s) || net.bridgeOver.has(w.idx(x + DX[d] * s, y + DY[d] * s))) clear = false;
+          if (!clear) continue;
+          const n = net.nodeAt(bx, by);
+          if (n ? n.kind !== 'road' || n.links[opp(d)] : !net.canPlaceRoad(bx, by)) continue;
+          const j = w.idx(bx, by);
+          const nd = base + 3 + k * 1.5;
+          const ex = dist.get(j);
+          if (ex === undefined || nd < ex) {
+            dist.set(j, nd);
+            prev.set(j, i);
+            heap.push(j, nd);
+          }
+        }
+      }
     }
     if (found < 0) return 0;
     const path: number[] = [];
@@ -164,7 +188,20 @@ export class AutoBuilder {
       const a = nodes[k];
       const b = nodes[k + 1];
       const d = dirOf(a, b);
-      if (d >= 0 && !a.links[d] && net.checkRoadLink(a, b, d) === 'ok') net.linkRoad(a, b, d);
+      if (d >= 0) {
+        if (!a.links[d] && net.checkRoadLink(a, b, d) === 'ok') net.linkRoad(a, b, d);
+        continue;
+      }
+      // not adjacent: a bridge jump
+      const bd = bridgeDir(a, b);
+      if (bd < 0 || a.links[bd]) break;
+      const plan = net.planBridge(a, bd);
+      if (typeof plan === 'string' || plan.bx !== b.x || plan.by !== b.y) break;
+      if (!this.free) {
+        if (g.inv.bridges <= 0) break;
+        g.inv.bridges--;
+      }
+      net.buildBridge(plan, b);
     }
     if (house && nodes.length > 0) {
       const first = nodes[0];
@@ -183,6 +220,14 @@ export class AutoBuilder {
     }
     return built;
   }
+}
+
+function bridgeDir(a: RNode, b: RNode): number {
+  const dx = Math.sign(b.x - a.x);
+  const dy = Math.sign(b.y - a.y);
+  if (dx !== 0 && dy !== 0) return -1;
+  for (let d = 0; d < 8; d += 2) if (DX[d] === dx && DY[d] === dy) return d;
+  return -1;
 }
 
 function dirOf(a: RNode, b: RNode): number {

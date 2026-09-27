@@ -1,7 +1,6 @@
 import { Rng } from '../core/rng';
-import { clamp } from '../core/math';
 import {
-  DX, DY, TERM, opp, PIN_OVERFLOW, OVERFLOW_TIME, CARS_PER_HOUSE, DAY_LENGTH, WEEK_DAYS, COLOR_COUNT,
+  DX, DY, TERM, opp, PIN_PATIENCE, LATE_OVERFLOW, PIN_HARD_CAP, OVERFLOW_TIME, CARS_PER_HOUSE, DAY_LENGTH, WEEK_DAYS, COLOR_COUNT,
 } from './constants';
 import { World } from './world';
 import { Network, type RNode, type Link } from './network';
@@ -39,13 +38,33 @@ export type GameEvent =
   | { type: 'rush'; on: boolean };
 
 /** demand multiplier per week day (Mon..Sun): busy end of week, calm weekend */
-const DAY_DEMAND = [0.95, 1.0, 1.1, 1.25, 1.35, 0.8, 0.65];
+const DAY_DEMAND = [0.9, 1.0, 1.1, 1.3, 1.45, 0.8, 0.6];
 export const RUSH_THRESHOLD = 1.2;
 /** week from which avenues / one-way streets and junction rules are available */
 export const UNLOCK_TYPES_WEEK = 2;
 export const UNLOCK_RULES_WEEK = 3;
 
-export const WEEK_BONUS_ROADS = 12;
+/** free roads given at the end of week w (grows with the city) */
+export function weekBonusRoads(week: number): number {
+  return 11 + Math.min(12, week);
+}
+/** a destination stops attracting new houses once it has this many nearby */
+const HOUSES_PER_DEST = 8;
+/** trips per second asked by one house at the start of the game */
+const HOUSE_RATE = 0.03;
+/** growth of that rate per minute (linear and quadratic terms) */
+const DEMAND_LIN = 0.075;
+const DEMAND_QUAD = 0.0035;
+/** a destination always has at least this much demand, even without houses */
+const MIN_HOUSEHOLDS = 1.5;
+/** demand of a destination counts at most this many households */
+const HOUSEHOLD_CAP = 8;
+/** seconds between house spawns: start, floor, and decrease per minute */
+const HOUSE_EVERY_START = 11;
+const HOUSE_EVERY_MIN = 3;
+const HOUSE_EVERY_DROP = 0.6;
+/** the very first destination waits a little longer (time to read the tutorial) */
+const FIRST_GRACE = 20;
 const START_ROADS = 32;
 
 /** Seconds of game time between destination spawns (cumulative schedule). */
@@ -76,7 +95,8 @@ export class Game implements TrafficHost {
   private destIndex = 0;
   private destRetry = 0;
   private wasRush = false;
-  private houseClock = 4;
+  private householdClock = 0;
+  private houseClock = 8;
   private dispatchClock = 0;
   private distVersion = -1;
   private distMaps = new Map<Destination, Map<RNode, number>>();
@@ -85,7 +105,16 @@ export class Game implements TrafficHost {
   private syncedVersion = -1;
   private colorOrder: number[];
   /** statistics */
-  stats = { roadsBuilt: 0, maxCars: 0 };
+  stats = { roadsBuilt: 0, maxCars: 0, tripSum: 0, trips: 0 };
+  /** trips and average trip time of every finished week */
+  readonly weekStats: { trips: number; avgTrip: number }[] = [];
+  private weekMark = { score: 0, trips: 0, tripSum: 0 };
+
+  /** statistics of the week in progress (used for the game-over summary) */
+  currentWeekStats(): { trips: number; avgTrip: number } {
+    const n = this.stats.trips - this.weekMark.trips;
+    return { trips: this.score - this.weekMark.score, avgTrip: n > 0 ? (this.stats.tripSum - this.weekMark.tripSum) / n : 0 };
+  }
 
   constructor(preset: MapPreset, portrait: boolean, seed: number, opts: { demo?: boolean } = {}) {
     this.preset = preset;
@@ -112,7 +141,11 @@ export class Game implements TrafficHost {
     return this.gateMap.get(n);
   }
 
-  onDeliver(_car: Car, dest: Destination): void {
+  onDeliver(car: Car, dest: Destination): void {
+    const trip = this.time - car.dispatchedAt;
+    dest.tripTime = dest.delivered === 0 ? trip : dest.tripTime + (trip - dest.tripTime) * 0.2;
+    this.stats.tripSum += trip;
+    this.stats.trips++;
     dest.pins = Math.max(0, dest.pins - 1);
     dest.claimed = Math.max(0, dest.claimed - 1);
     dest.pulse = 1;
@@ -231,7 +264,7 @@ export class Game implements TrafficHost {
     d.pinClock = 0.35;
     this.events.push({ type: 'dest', dest: d, newColor });
     // a couple of houses to get the colour going
-    const n = newColor ? 2 : 1;
+    const n = 2;
     for (let k = 0; k < n; k++) this.spawnHouse(color, d);
     return d;
   }
@@ -423,27 +456,27 @@ export class Game implements TrafficHost {
     return d;
   }
 
+  /** houses of the destination's colour close enough to be its natural supply */
+  nearbyHouses(d: Destination): number {
+    let n = 0;
+    for (const h of this.houses) if (h.color === d.color && Math.hypot(h.x + 0.5 - d.cx, h.y + 0.5 - d.cy) < 7.5) n++;
+    return n;
+  }
+
   private spawnHouseByNeed(): void {
     if (this.dests.length === 0) return;
-    // colour weights: fewer houses per destination -> more likely
-    const weights = this.colors.map((c) => {
-      const hs = this.houses.filter((h) => h.color === c).length;
-      const ds = this.dests.filter((d) => d.color === c);
-      const pins = ds.reduce((s, d) => s + d.pins, 0);
-      const ratio = hs / Math.max(1, ds.length * 4);
-      if (hs >= ds.length * 8) return 0;
-      return Math.max(0.08, 1.6 - ratio) + pins * 0.12;
+    // every destination grows its own neighbourhood; the ones with few nearby
+    // houses, long trips or waiting customers get served first
+    const weights = this.dests.map((d) => {
+      const near = this.nearbyHouses(d);
+      if (near >= HOUSES_PER_DEST) return 0;
+      const age = (this.time - d.born) / 60;
+      return (1 / (1 + near)) * (1 + d.tripTime / 14) * (1 + 0.12 * d.pins) * (age < 1.5 ? 1.6 : 1);
     });
-    const ci = this.rng.weighted(weights);
-    if (ci < 0) return;
-    const color = this.colors[ci];
-    const ds = this.dests.filter((d) => d.color === color);
-    const dw = ds.map((d) => {
-      const hs = this.houses.filter((h) => h.color === color && Math.hypot(h.x - d.x, h.y - d.y) < 8).length;
-      return 1 / (1 + hs) + d.pins * 0.1;
-    });
-    const di = this.rng.weighted(dw);
-    this.spawnHouse(color, ds[Math.max(0, di)]);
+    const di = this.rng.weighted(weights);
+    if (di < 0) return;
+    const d = this.dests[di];
+    this.spawnHouse(d.color, d);
   }
 
   // ------------------------------------------------------------------
@@ -457,13 +490,39 @@ export class Game implements TrafficHost {
   }
 
   /** demand rate (pins/s) for one destination */
-  demandRate(d: Destination): number {
+  /** trips per second requested by one house (grows as the city gets busier) */
+  houseRate(): number {
     const min = (this.demo ? Math.min(this.time, 150) : this.time) / 60;
-    const base = 0.074 + 0.0105 * min + 0.0006 * min * min;
-    const hs = this.houses.filter((h) => h.color === d.color).length;
-    const ds = Math.max(1, this.dests.filter((x) => x.color === d.color).length);
-    const hf = clamp(0.5 + (0.17 * hs) / ds, 0.6, 1.5);
-    return base * hf * this.preset.demand * (this.demo ? 1 : this.rushFactor);
+    return HOUSE_RATE * (1 + DEMAND_LIN * min + DEMAND_QUAD * min * min);
+  }
+
+  /**
+   * Demand of a destination: every house asks for trips to the nearest
+   * destination of its colour, so demand and cars grow together and what
+   * limits the city is how long a round trip takes.
+   */
+  demandRate(d: Destination): number {
+    // a lot can only absorb so much: extra houses add cars, not demand
+    const households = Math.min(HOUSEHOLD_CAP, Math.max(MIN_HOUSEHOLDS, d.households));
+    return this.houseRate() * households * this.preset.demand * (this.demo ? 1 : this.rushFactor);
+  }
+
+  /** assign every house to the nearest destination of its colour */
+  private assignHouseholds(): void {
+    for (const d of this.dests) d.households = 0;
+    for (const h of this.houses) {
+      let best: Destination | null = null;
+      let bd = Infinity;
+      for (const d of this.dests) {
+        if (d.color !== h.color) continue;
+        const dd = Math.hypot(h.x + 0.5 - d.cx, h.y + 0.5 - d.cy);
+        if (dd < bd) {
+          bd = dd;
+          best = d;
+        }
+      }
+      if (best) best.households++;
+    }
   }
 
   syncNetwork(): void {
@@ -501,20 +560,29 @@ export class Game implements TrafficHost {
       this.houseClock -= dt;
       if (this.houseClock <= 0) {
         const min = this.time / 60;
-        this.houseClock = Math.max(2.9, 6.8 - min * 0.36) * this.rng.range(0.75, 1.25);
+        this.houseClock = Math.max(HOUSE_EVERY_MIN, HOUSE_EVERY_START - min * HOUSE_EVERY_DROP) * this.rng.range(0.8, 1.2);
         this.spawnHouseByNeed();
       }
     }
 
     // demand
+    this.householdClock -= dt;
+    if (this.householdClock <= 0) {
+      this.householdClock = 1;
+      this.assignHouseholds();
+    }
     for (const d of this.dests) {
-      if (this.time - d.born < (this.time < 20 ? 6 : 12)) continue; // grace period
+      d.clock = this.time;
+      if (d.pulse > 0) d.pulse = Math.max(0, d.pulse - dt * 2.5);
+      if (this.time - d.born < (this.dests[0] === d ? FIRST_GRACE : 12)) continue; // grace period
       d.pinClock += this.demandRate(d) * dt;
       if (d.pinClock >= 1) {
         d.pinClock -= 1 + this.rng.range(-0.25, 0.25);
         d.pins++;
       }
-      if (d.pins >= PIN_OVERFLOW) {
+      // a building overflows when customers wait too long (or pile up)
+      const late = d.lateCount(this.time, PIN_PATIENCE);
+      if (late >= LATE_OVERFLOW || d.pins >= PIN_HARD_CAP) {
         if (d.timer === 0) this.events.push({ type: 'overflow', dest: d });
         d.timer += dt;
         if (d.timer >= OVERFLOW_TIME && !this.demo) {
@@ -526,7 +594,6 @@ export class Game implements TrafficHost {
       } else if (d.timer > 0) {
         d.timer = Math.max(0, d.timer - dt * 0.5);
       }
-      if (d.pulse > 0) d.pulse = Math.max(0, d.pulse - dt * 2.5);
     }
 
     for (const h of this.houses) for (const c of h.cars) if (c.cooldown > 0) c.cooldown -= dt;
@@ -629,10 +696,20 @@ export class Game implements TrafficHost {
   // Weeks & upgrades
   // ------------------------------------------------------------------
 
+  /** close the statistics of the week that just ended */
+  private recordWeek(): void {
+    const trips = this.score - this.weekMark.score;
+    const n = this.stats.trips - this.weekMark.trips;
+    const avg = n > 0 ? (this.stats.tripSum - this.weekMark.tripSum) / n : 0;
+    this.weekStats.push({ trips, avgTrip: avg });
+    this.weekMark = { score: this.score, trips: this.stats.trips, tripSum: this.stats.tripSum };
+  }
+
   private openWeek(): void {
     this.state = 'week';
+    this.recordWeek();
     const pool: [UpgradeKind, number, number][] = [
-      ['roads', 20, 3],
+      ['roads', 18 + 2 * Math.min(8, this.week), 3],
       ['bridge', 2, this.world.waterInBounds() > 0 ? this.preset.bridgeWeight : 0],
       ['roundabout', 1, 2],
       ['lights', 2, 1.8],
@@ -647,13 +724,13 @@ export class Game implements TrafficHost {
       weights[i] = 0;
     }
     this.pendingChoices = choices;
-    this.events.push({ type: 'week', week: this.week, choices, bonus: WEEK_BONUS_ROADS });
+    this.events.push({ type: 'week', week: this.week, choices, bonus: weekBonusRoads(this.week - 1) });
   }
 
   chooseUpgrade(i: number): void {
     if (this.state !== 'week') return;
     const u = this.pendingChoices[i];
-    this.inv.roads += WEEK_BONUS_ROADS;
+    this.inv.roads += weekBonusRoads(this.week - 1);
     if (u) this.applyUpgrade(u);
     this.pendingChoices = [];
     const nb = boundsForWeek(this.world, this.week, this.portrait);

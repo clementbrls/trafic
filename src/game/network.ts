@@ -2,6 +2,11 @@ import { DX, DY, opp, isDiag, BOUND, MAX_BRIDGE_SPAN, MAX_MOTORWAY_SPAN, MIN_MOT
 import type { World } from './world';
 
 export type NodeKind = 'road' | 'house' | 'gate';
+
+/** junction rules */
+export const RULE_AUTO = 0;
+export const RULE_AXIS = 1; // 1..4: priority along axis d & 3
+export const RULE_NOLEFT = 5;
 export type Control = 'none' | 'light' | 'roundabout';
 export type LinkKind = 'road' | 'bridge' | 'motorway';
 
@@ -21,8 +26,11 @@ export class RNode {
   /** for gates: the only allowed direction */
   fixedDir = -1;
   degree = 0;
-  /** junction rule: left turns (and U-turns) forbidden */
-  noLeft = false;
+  /**
+   * junction rule set by the player: RULE_AUTO, a priority axis
+   * (RULE_AXIS + d&3: the straight road along that axis has priority) or RULE_NOLEFT
+   */
+  rule = RULE_AUTO;
   /** smoothed congestion 0 (free flow) .. 1 (jammed), for the traffic view */
   load = 0;
   /** bumped whenever links/control change (geometry caches key on it) */
@@ -53,6 +61,16 @@ export class RNode {
 
   get isTerminal(): boolean {
     return this.kind !== 'road';
+  }
+
+  /** left turns and U-turns are forbidden here */
+  get noLeft(): boolean {
+    return this.rule === RULE_NOLEFT;
+  }
+
+  /** axis (0..3) given priority by the player, or -1 */
+  get priorityAxis(): number {
+    return this.rule >= RULE_AXIS && this.rule < RULE_AXIS + 4 ? this.rule - RULE_AXIS : -1;
   }
 
   /** junction = needs right-of-way management */
@@ -265,10 +283,21 @@ export class Network {
     this.listener?.('control', n, c !== 'none');
   }
 
-  setRule(n: RNode, noLeft: boolean): void {
-    if (n.noLeft === noLeft) return;
-    n.noLeft = noLeft;
+  setRule(n: RNode, rule: number): void {
+    if (n.rule === rule) return;
+    n.rule = rule;
     this.touch(n);
+  }
+
+  /** straight axes (0..3) available for a priority rule at this node */
+  priorityAxes(n: RNode): number[] {
+    const out: number[] = [];
+    for (let a = 0; a < 4; a++) {
+      const l1 = n.links[a];
+      const l2 = n.links[a + 4];
+      if (l1 && l2 && !l1.other(n).isTerminal && !l2.other(n).isTerminal) out.push(a);
+    }
+    return out;
   }
 
   /** Change the class / direction of an existing link. */

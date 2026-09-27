@@ -71,7 +71,7 @@ describe('review regressions', () => {
     n.linkRoad(c, e, 0);
     const g = n.addTerminal(4, 2, 'gate', 2, 2);
     n.linkRoad(up, g, 6);
-    n.setRule(c, true);
+    n.setRule(c, 5);
     // car entering c from the west arm (arm 4): turning north is forbidden
     const r = findRoute(c, 4, g, () => 0)!;
     expect(r).not.toBeNull();
@@ -100,6 +100,7 @@ describe('review regressions', () => {
     b.move(14.5, 10.5);
     b.end();
     const node = g.net.nodeAt(14, 10)!;
+    b.tap(14.5, 10.5, 'rules');
     b.tap(14.5, 10.5, 'rules');
     expect(node.noLeft).toBe(true);
     g.inv.roundabouts = 1;

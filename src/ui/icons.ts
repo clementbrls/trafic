@@ -6,7 +6,7 @@ export const icons = {
   bridge: svg('<path d="M2 9h20"/><path d="M4 9v10M20 9v10"/><path d="M4 19c0-5 3.6-7.5 8-7.5s8 2.5 8 7.5"/><path d="M9 9v2.8M15 9v2.8"/>'),
   roundabout: svg('<circle cx="12" cy="12" r="5.2"/><path d="M12 2v4.8M12 17.2V22M2 12h4.8M17.2 12H22"/><path d="m14.6 7.2 1.7-.6.3 1.8" stroke-width="1.6"/>'),
   light: svg('<rect x="7.5" y="2" width="9" height="17" rx="3"/><circle cx="12" cy="6.4" r="1.4"/><circle cx="12" cy="10.5" r="1.4"/><circle cx="12" cy="14.6" r="1.4"/><path d="M12 19v3"/>'),
-  rules: svg('<circle cx="12" cy="12" r="9.2"/><path d="M14.5 16.5v-5a2 2 0 0 0-2-2H8.8"/><path d="m10.8 7.3-2.3 2.2 2.3 2.2"/><path d="M5.6 5.6l12.8 12.8" stroke-width="2.2"/>'),
+  rules: svg('<path d="M12 2.8 21.2 12 12 21.2 2.8 12Z"/><path d="M12 7.6 16.4 12 12 16.4 7.6 12Z" fill="currentColor" stroke="none"/>'),
   street: svg('<path d="M8 21 10 3M16 21 14 3"/>'),
   avenue: svg('<path d="M5 21 8 3M19 21 16 3"/><path d="M12 4v3M12 10.5v3M12 17v3" stroke-width="1.8"/>'),
   oneway: svg('<path d="M4 12h13"/><path d="m13 7 5 5-5 5"/>'),

@@ -1,6 +1,6 @@
 import { DX, DY, opp, isDiag, MIN_MOTORWAY_SPAN, MAX_MOTORWAY_SPAN } from './constants';
 import type { Game } from './game';
-import type { Link, MotorwayPlan, RNode, RoadTier } from './network';
+import { RULE_AUTO, RULE_AXIS, RULE_NOLEFT, type Link, type MotorwayPlan, type RNode, type RoadTier } from './network';
 
 export type Tool = 'road' | 'erase' | 'roundabout' | 'light' | 'motorway' | 'rules';
 
@@ -526,12 +526,16 @@ export class Builder {
       return;
     }
     if (tool === 'rules') {
-      if (!n.noLeft && (n.degree < 3 || n.control === 'roundabout')) {
+      if (n.rule === RULE_AUTO && (n.degree < 3 || n.control !== 'none')) {
         this.onFeedback('needJunction', tx, ty);
         return;
       }
-      this.net.setRule(n, !n.noLeft);
-      this.onBuild('rule', tx, ty, n.noLeft ? 1 : 0);
+      // cycle: auto -> priority along each straight axis -> no left turn -> auto
+      const states = [RULE_AUTO, ...this.net.priorityAxes(n).map((a) => RULE_AXIS + a), RULE_NOLEFT];
+      const i = states.indexOf(n.rule);
+      const next = states[(i + 1) % states.length];
+      this.net.setRule(n, next);
+      this.onBuild('rule', tx, ty, next);
       return;
     }
     if (tool === 'roundabout') {
@@ -547,7 +551,7 @@ export class Builder {
       }
       if (n.control === 'light') g.inv.lights++;
       g.inv.roundabouts--;
-      this.net.setRule(n, false); // a roundabout replaces any junction rule
+      this.net.setRule(n, RULE_AUTO); // a roundabout replaces any junction rule
       this.net.setControl(n, 'roundabout');
       this.onBuild('item', tx, ty, 1);
       return;

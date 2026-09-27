@@ -3,7 +3,8 @@ import { Fx } from './fx';
 import { makeTheme, type Theme } from './theme';
 import { clamp, easeOutBack, lerp, TAU } from '../core/math';
 import {
-  DX, DY, UX, UY, BOUND, PALETTE, ROAD_W, AVE_W, DRIVE_W, CAR_LEN, CAR_WID, RING_R, LANE, OVERFLOW_TIME, opp,
+  DX, DY, UX, UY, BOUND, PALETTE, ROAD_W, AVE_W, DRIVE_W, CAR_LEN, CAR_WID, RING_R, LANE, OVERFLOW_TIME, PIN_PATIENCE,
+  BOX_R, opp,
 } from '../game/constants';
 import { SEG_LINK } from '../game/car';
 import { inPoint } from '../game/geometry';
@@ -590,12 +591,72 @@ export class Renderer {
     ctx.stroke();
   }
 
+  /** white stop lines on the arms that must give way / stop */
+  private drawStopLines(game: Game): void {
+    const ctx = this.ctx;
+    const path = new Path2D();
+    for (const n of game.net.nodes.values()) {
+      if (n.kind !== 'road' || n.control !== 'none' || n.degree < 3) continue;
+      const j = n.traffic as Junction | null;
+      if (!j) continue;
+      for (let d = 0; d < 8; d++) {
+        const l = n.links[d];
+        if (!l || l.other(n).isTerminal || !j.mustStop(d)) continue;
+        const ux = UX[d];
+        const uy = UY[d];
+        // incoming lane lies on the right of the travel direction (-u)
+        const rx = uy;
+        const ry = -ux;
+        const w = l.tier === 'avenue' ? AVE_W : ROAD_W;
+        const cx = n.cx + ux * (BOX_R + 0.07);
+        const cy = n.cy + uy * (BOX_R + 0.07);
+        path.moveTo(cx + rx * 0.02, cy + ry * 0.02);
+        path.lineTo(cx + rx * (w / 2 - 0.035), cy + ry * (w / 2 - 0.035));
+      }
+    }
+    ctx.strokeStyle = this.theme.dark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 0.038;
+    ctx.lineCap = 'butt';
+    ctx.stroke(path);
+    ctx.lineCap = 'round';
+  }
+
+  /** small yellow diamond: the player chose the priority road here */
+  private drawPriorityBadge(n: RNode): void {
+    const ctx = this.ctx;
+    const a = n.priorityAxis;
+    const ux = UX[a];
+    const uy = UY[a];
+    // along the priority axis, just off the centre
+    const x = n.cx - uy * 0.05;
+    const y = n.cy + ux * 0.05;
+    const s = 0.12;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s - 0.03);
+    ctx.lineTo(x + s + 0.03, y);
+    ctx.lineTo(x, y + s + 0.03);
+    ctx.lineTo(x - s - 0.03, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#F2B233';
+    ctx.beginPath();
+    ctx.moveTo(x, y - s);
+    ctx.lineTo(x + s, y);
+    ctx.lineTo(x, y + s);
+    ctx.lineTo(x - s, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   private drawJunctionDecor(game: Game): void {
     const ctx = this.ctx;
     const th = this.theme;
+    this.drawStopLines(game);
     for (const n of game.net.nodes.values()) {
       if (n.kind !== 'road') continue;
       if (n.noLeft && n.control !== 'roundabout' && n.degree >= 3) this.drawRuleBadge(n);
+      else if (n.priorityAxis >= 0 && n.control === 'none' && n.degree >= 3) this.drawPriorityBadge(n);
       if (n.control === 'roundabout') {
         ctx.fillStyle = th.island;
         ctx.beginPath();
@@ -805,12 +866,16 @@ export class Renderer {
       const row = Math.floor(k / 4);
       const colI = k % 4;
       const [x, y] = p(-0.6 + colI * 0.4, 1.32 + row * 0.3);
-      const r = 0.085 * s;
-      ctx.fillStyle = th.pin;
+      // customers grow impatient: white -> amber -> red
+      const age = game.time - d.pinTimes[k];
+      const late = age > PIN_PATIENCE;
+      const warm = age > PIN_PATIENCE * 0.6;
+      const r = (late ? 0.1 + 0.012 * Math.sin(this.time * 8 + k) : 0.085) * s;
+      ctx.fillStyle = late ? th.danger : warm ? '#FFC46B' : th.pin;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = col.dark;
+      ctx.strokeStyle = late ? '#FFFFFF' : col.dark;
       ctx.lineWidth = 0.025;
       ctx.stroke();
     }

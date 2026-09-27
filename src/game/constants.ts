@@ -47,10 +47,10 @@ export const REQ_DIST = 0.42;
 
 export const SPEED_MOTORWAY = 1.85;
 export const SPEED_AVENUE = 1.3;
-export const SPEED_BOX_DEFAULT = 0.56;
+export const SPEED_BOX_DEFAULT = 0.5;
 export const SPEED_BOX_MAJOR = 0.86;
 export const SPEED_BOX_LIGHT = 1.0;
-export const SPEED_BOX_RING = 0.72;
+export const SPEED_BOX_RING = 0.66;
 export const SPEED_TERMINAL = 0.62;
 
 // ---- Rules ----
@@ -58,8 +58,13 @@ export const MAX_BRIDGE_SPAN = 6; // water tiles
 export const MAX_MOTORWAY_SPAN = 12; // tiles between endpoints
 export const MIN_MOTORWAY_SPAN = 2;
 export const PARK_SLOTS = 4;
-export const PARK_TIME = 1.0;
-export const PIN_OVERFLOW = 6;
+export const PARK_TIME = 0.6;
+/** a demand is late after waiting this long (s) */
+export const PIN_PATIENCE = 30;
+/** late demands that start the overflow timer */
+export const LATE_OVERFLOW = 3;
+/** demands piling up beyond this also overflow */
+export const PIN_HARD_CAP = 12;
 export const OVERFLOW_TIME = 45;
 export const CARS_PER_HOUSE = 2;
 export const DAY_LENGTH = 10; // seconds

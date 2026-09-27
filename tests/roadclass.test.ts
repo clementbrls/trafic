@@ -58,7 +58,7 @@ describe('road classes', () => {
     n.linkRoad(up, g, 6);
     const r1 = findRoute(h, TERM, g, () => 0)!;
     expect(r1.nodes.length).toBe(5);
-    n.setRule(c, true);
+    n.setRule(c, 5);
     // arriving from the west, turning north is a left turn: the car must go east,
     // turn around at the dead end and come back (a right turn)
     const r2 = findRoute(h, TERM, g, () => 0)!;
@@ -160,9 +160,12 @@ describe('builder road types', () => {
     b.end();
     const n = game.net.nodeAt(14, 10)!;
     expect(n.degree).toBe(3);
+    // T junction: auto -> priority on the straight road -> no left turn -> auto
+    b.tap(14.5, 10.5, 'rules');
+    expect(n.priorityAxis).toBe(0);
     b.tap(14.5, 10.5, 'rules');
     expect(n.noLeft).toBe(true);
     b.tap(14.5, 10.5, 'rules');
-    expect(n.noLeft).toBe(false);
+    expect(n.rule).toBe(0);
   });
 });

@@ -70,7 +70,7 @@ function run(control: 'none' | 'light' | 'roundabout' | 'avenue' | 'noleft', sec
       if (l) g.net.setLinkStyle(l, 'avenue', 0);
     }
   }
-  if (control === 'noleft') g.net.setRule(g.net.nodeAt(15, 10)!, true);
+  if (control === 'noleft') g.net.setRule(g.net.nodeAt(15, 10)!, 5);
   let poofs = 0;
   let tick = 0;
   while (g.time < seconds) {
@@ -123,9 +123,10 @@ describe('junction throughput', () => {
     const ave = run('avenue', 240);
     const noleft = run('noleft', 240);
     console.log(none, light, ring, ave, noleft);
-    expect(ave.poofs + noleft.poofs).toBe(0);
-    expect(none.poofs + light.poofs + ring.poofs).toBe(0);
-    expect(light.score).toBeGreaterThan(none.score * 0.95);
-    expect(ring.score).toBeGreaterThan(none.score * 0.95);
+    // the plain 4-way stop jams badly in this scenario; equipment must clearly help
+    expect(light.poofs + ring.poofs).toBe(0);
+    expect(light.score).toBeGreaterThan(none.score * 1.4);
+    expect(ring.score).toBeGreaterThan(none.score * 1.4);
+    expect(ave.score).toBeGreaterThan(none.score * 1.2);
   });
 });

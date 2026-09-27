@@ -49,8 +49,10 @@ export class Destination {
   /** outward direction of the gate (orthogonal) */
   readonly gateDir: number;
   readonly slots: Slot[] = [];
-  /** outstanding demands (including the ones a car is already driving to) */
-  pins = 0;
+  /** creation time of every outstanding demand, oldest first */
+  readonly pinTimes: number[] = [];
+  /** game clock, kept up to date by the game (used when demands are added) */
+  clock = 0;
   /** demands already assigned to a car */
   claimed = 0;
   /** overflow timer (seconds) */
@@ -65,6 +67,10 @@ export class Destination {
   /** visual pulse when a pin is delivered */
   pulse = 0;
   delivered = 0;
+  /** smoothed dispatch-to-delivery time (seconds) */
+  tripTime = 0;
+  /** houses of this colour for which this is the nearest destination */
+  households = 0;
 
   constructor(x: number, y: number, color: number, gate: RNode, gateDir: number, born: number) {
     this.x = x;
@@ -75,6 +81,33 @@ export class Destination {
     this.born = born;
     this.tiles = [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]];
     this.layoutSlots();
+  }
+
+  /** outstanding demands (including the ones a car is already driving to) */
+  get pins(): number {
+    return this.pinTimes.length;
+  }
+
+  /** setting the count adds fresh demands or serves the oldest ones */
+  set pins(n: number) {
+    n = Math.max(0, Math.floor(n));
+    while (this.pinTimes.length < n) this.pinTimes.push(this.clock);
+    if (this.pinTimes.length > n) this.pinTimes.splice(0, this.pinTimes.length - n);
+  }
+
+  /** demands that have been waiting longer than `patience` seconds */
+  lateCount(now: number, patience: number): number {
+    let k = 0;
+    for (const t of this.pinTimes) {
+      if (now - t > patience) k++;
+      else break;
+    }
+    return k;
+  }
+
+  /** age of the oldest demand */
+  oldestAge(now: number): number {
+    return this.pinTimes.length ? now - this.pinTimes[0] : 0;
   }
 
   get cx(): number {

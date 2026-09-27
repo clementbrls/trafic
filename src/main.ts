@@ -6,7 +6,7 @@ import { Game } from './game/game';
 import { Builder, type Feedback, type RoadType, type Tool } from './game/builder';
 import { AutoBuilder } from './game/autobuild';
 import { getMap, boundsForWeek, type MapId } from './game/maps';
-import { PALETTE, OVERFLOW_TIME } from './game/constants';
+import { PALETTE, OVERFLOW_TIME, PIN_PATIENCE } from './game/constants';
 import { randomSeed } from './core/rng';
 import { sound } from './audio';
 import { storage } from './storage';
@@ -21,6 +21,8 @@ const DEV_PLAY = import.meta.env.DEV ? new URLSearchParams(location.search).get(
 if (import.meta.env.DEV) for (const k of new URLSearchParams(location.search).keys()) DEV_FLAGS.add(k);
 
 type TutStep = 'connect' | 'deliver' | 'erase' | 'junction' | 'overflow' | 'done';
+
+const MILESTONES = [100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000];
 
 class App {
   readonly canvas: HTMLCanvasElement;
@@ -49,6 +51,13 @@ class App {
   private dark = false;
   private overflowToasted = new Set<number>();
   private demoClock = 0;
+  // contextual advice
+  private adviceClock = 0;
+  private tipCooldown = 20;
+  private jamTime = new Map<number, number>();
+  private adviced = new Map<number, number>();
+  private lateTipDone = false;
+  private milestone = 0;
 
   constructor() {
     this.canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -233,6 +242,11 @@ class App {
     this.acc = 0;
     this.overTimer = -1;
     this.overflowToasted.clear();
+    this.jamTime.clear();
+    this.adviced.clear();
+    this.lateTipDone = false;
+    this.milestone = 0;
+    this.tipCooldown = 20;
     this.renderer.fx.clear();
     this.renderer.resetBounds(g.world.bounds);
     this.ui.resetSeen();
@@ -420,8 +434,8 @@ class App {
       case 'style': sound.link(); break;
       case 'rule':
         sound.item();
-        this.ui.showToolHint(t(n ? 'rule_on' : 'rule_off'));
-        this.renderer.fx.ring(x + 0.5, y + 0.5, this.renderer.theme.danger, 0.2, 0.7, 0.5, 0.05);
+        this.ui.showToolHint(t(n === 0 ? 'rule_auto' : n === 5 ? 'rule_noleft' : 'rule_axis'));
+        this.renderer.fx.ring(x + 0.5, y + 0.5, n === 5 ? this.renderer.theme.danger : '#F2B233', 0.2, 0.7, 0.5, 0.05);
         break;
     }
   }
@@ -481,6 +495,7 @@ class App {
     }
     this.handleEvents(g);
     this.updateTutorial(g, running ? dt : 0);
+    if (running) this.updateAdvice(g, dt * this.speed);
 
     // periodic warning while something overflows
     const danger = g.dests.some((d) => d.timer > OVERFLOW_TIME * 0.35);
@@ -527,7 +542,7 @@ class App {
           sound.week();
           this.input.endAll();
           this.ui.hideHint(true);
-          this.ui.showWeek(e.week, e.choices, e.bonus);
+          this.ui.showWeek(e.week, e.choices, e.bonus, g.weekStats);
           break;
         case 'over':
           sound.gameOver();
@@ -637,6 +652,74 @@ class App {
     }
   }
 
+  /**
+   * Contextual tips: point at saturated junctions, isolated buildings and
+   * celebrate milestones. Rate-limited so they never spam.
+   */
+  private updateAdvice(g: Game, dt: number): void {
+    this.adviceClock -= dt;
+    this.tipCooldown -= dt;
+    // milestones
+    const next = MILESTONES[this.milestone];
+    if (next !== undefined && g.score >= next) {
+      this.milestone++;
+      this.ui.toast(t('milestone', { n: next }));
+      sound.week();
+    }
+    if (this.adviceClock > 0) return;
+    this.adviceClock = 1;
+    const fx = this.renderer.fx;
+    // sustained jams at plain junctions
+    for (const j of g.traffic.junctions) {
+      const n = j.node;
+      const hot = n.control === 'none' && j.queue > 1.7;
+      const was = this.jamTime.get(n.id) ?? 0;
+      this.jamTime.set(n.id, hot ? was + 1 : Math.max(0, was - 1));
+    }
+    if (this.tipCooldown <= 0) {
+      let worst: { n: import('./game/network').RNode; q: number; majorMask: number } | null = null;
+      for (const j of g.traffic.junctions) {
+        const n = j.node;
+        if ((this.jamTime.get(n.id) ?? 0) < 6) continue;
+        if ((this.adviced.get(n.id) ?? -1e9) > g.time - 120) continue;
+        if (!worst || j.queue > worst.q) worst = { n, q: j.queue, majorMask: j.majorMask };
+      }
+      if (worst) {
+        const n = worst.n;
+        let roadArms = 0;
+        for (const l of n.links) if (l && !l.other(n).isTerminal) roadArms++;
+        const fixes: string[] = [];
+        if (g.inv.roundabouts > 0) fixes.push(t('tip_fix_ring'));
+        if (g.inv.lights > 0 && roadArms >= 3) fixes.push(t('tip_fix_light'));
+        if (g.rulesUnlocked && worst.majorMask === 0 && g.net.priorityAxes(n).length > 0) fixes.push(t('tip_fix_prio'));
+        if (fixes.length === 0) fixes.push(t('tip_fix_road'));
+        this.ui.toast(t('tip_jam', { fix: fixes.slice(0, 2).join(t('tip_or')) }), false, 4200);
+        fx.ring(n.cx, n.cy, this.renderer.theme.danger, 0.3, 1.4, 1.2, 0.08);
+        fx.ring(n.cx, n.cy, this.renderer.theme.danger, 0.2, 1.1, 1.6, 0.05);
+        this.adviced.set(n.id, g.time);
+        this.tipCooldown = 30;
+        return;
+      }
+      // a building with nobody to serve it
+      for (const d of g.dests) {
+        if (g.time - d.born < 25 || d.pins < 2) continue;
+        if ((this.adviced.get(-d.id) ?? -1e9) > g.time - 90) continue;
+        if (g.destConnected(d)) continue;
+        this.ui.toast(t('tip_isolated'), true, 3800);
+        fx.ring(d.cx, d.cy, PALETTE[d.color].base, 0.8, 2.6, 1.3, 0.1);
+        this.adviced.set(-d.id, g.time);
+        this.tipCooldown = 25;
+        return;
+      }
+      // first impatient customers of the game
+      if (!this.lateTipDone && g.dests.some((d) => d.lateCount(g.time, PIN_PATIENCE) > 0)) {
+        this.lateTipDone = true;
+        this.ui.toast(t('tip_late'), false, 4000);
+        this.tipCooldown = 20;
+      }
+    }
+  }
+
   private showGameOver(g: Game): void {
     const prev = storage.best(g.preset.id)?.score ?? 0;
     const record = storage.submit(g.preset.id, g.score, g.week);
@@ -646,8 +729,10 @@ class App {
       record,
       best: prev,
       map: g.preset.id,
-      roads: g.stats.roadsBuilt,
+      roads: g.net.roadCount(),
       maxCars: g.stats.maxCars,
+      avgTrip: g.stats.trips > 0 ? g.stats.tripSum / g.stats.trips : 0,
+      history: [...g.weekStats.map((w) => w.trips), g.currentWeekStats().trips],
     });
   }
 
