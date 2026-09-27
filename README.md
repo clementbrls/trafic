@@ -1,101 +1,118 @@
 # trafic.
 
-Un jeu de gestion de trafic minimaliste pour le navigateur, inspiré de *Mini Motorways* et de *Cities: Skylines + TM:PE*.
-Trace des routes pour relier chaque maison au bâtiment de sa couleur, puis garde la ville fluide pendant qu'elle grandit.
+A minimalist traffic management game for the browser, inspired by *Mini Motorways* and *Cities: Skylines + TM:PE*.
+Draw roads to link every house to the building of its colour, then keep the city flowing as it grows.
 
-Le jeu tourne **entièrement côté client** (aucun serveur) : ordinateur, tablette et téléphone, en portrait comme en paysage. Une fois ajouté à l'écran d'accueil, il fonctionne hors-ligne.
+**[▶ Play in your browser](https://clementbrls.github.io/trafic/)**
 
-## Jouer
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png">
+    <img src="docs/screenshot-light.png" alt="A city in Trafic: coloured districts, avenues, a curved motorway and a roundabout" width="100%">
+  </picture>
+</p>
+
+The game runs **entirely client-side** (no server): desktop, tablet and phone, in portrait or landscape. Once added to the home screen, it works offline.
+
+## How it plays
+
+<img src="docs/screenshot-mobile.png" alt="Trafic on a phone, in portrait" width="250" align="right">
+
+- Every **house** owns four cars. **Buildings** ask for trips (white dots) that cars of their colour come to fulfil: each delivery scores 1 point.
+- Houses grow in **districts**, away from their building and further out as the city expands: flows of different colours cross each other, so you need real arterial roads.
+- A new building starts asking as soon as a house can reach it (or after a few seconds).
+- When a building piles up too many requests, a countdown starts. If it runs out, the game is over.
+- Every **week**, the map grows, you receive roads and you pick an upgrade.
+- Built for phones first: every tool is a drag or a tap, and the portrait layout fits a 375 px wide screen.
+
+<br clear="right">
+
+### Traffic mechanics
+
+| Element | Effect |
+| --- | --- |
+| **Street** | Standard road, 1 road per tile. |
+| **Avenue** (week 2) | Faster and has **priority**: at junctions, streets give way to it. Costs 2 roads per tile. |
+| **One-way** (week 2) | Follows the direction of your drag, with arrows on the road. Removes conflicts at junctions. |
+| **Junction** | A through road (2 arms of the highest class) has priority; where 3 or more equal roads meet, the junction works as an **all-way stop**. |
+| **Roundabout** | Several cars move at once; entering cars give way to the ring. |
+| **Traffic lights** | Alternating phases that adapt to demand. |
+| **Motorway** | A fast lane flying over everything, in any direction (up to 13 tiles). Its ramps follow the grid and the deck curves smoothly between them. |
+| **Bridge** | Placed automatically when you draw across water. |
+| **Priority** (week 3) | Tap a junction to cycle: automatic priority → chosen priority road (the others must stop) → no left turns. |
+| **Traffic view** | Colours roads by congestion (green → red). |
+| **Rush hour** | Demand follows a weekly rhythm: busy end of week, quiet weekend. |
+
+Drawing over an existing road with another type converts it (a street becomes an avenue, a one-way road becomes two-way again…).
+
+A building **overflows when its customers wait too long**: each request (white dot) turns orange, then red after 30 s; from 3 late requests on, the countdown starts. White lines on the road show which arms must stop.
+
+### Which tool for which jam?
+
+Measured in a 4-arm test junction (trips per minute, heavy traffic):
+
+| Situation | Stop | Priority (free) | Avenue | Lights | Roundabout |
+| --- | --- | --- | --- | --- | --- |
+| Two major roads crossing straight | 59 | 68 | 71 | **95** | 92 |
+| Lots of turning cars | 58 | 61 | 66 | 76 | **89** |
+| Medium traffic | 53 | 60 | 62 | 68 | 67 |
+| Light traffic | 25 | 26 | 28 | 27 | 27 |
+
+- **Stop**: good enough while traffic is light.
+- **Priority / avenue**: useful when one road dominates, but the side road can end up stuck.
+- **Lights**: ideal where two major roads cross, even better with left turns banned.
+- **Roundabout**: the best choice as soon as many cars turn.
+- **No left turns**: a small gain (a few %) at lights, when a detour exists.
+- **Avenues and motorways** pay off on long trips: on a 17-tile route, a trip takes 13.6 s on streets, 11.5 s on avenues and 11.1 s with a motorway, which also flies over the busy junctions.
+
+Demand comes from the houses: each one asks for trips to the nearest building of its colour, more and more often. The shorter and smoother the round trips, the longer the city lasts. Test bots survive about 15 weeks on Plains and River, and about 12 on Archipelago.
+
+### Controls
+
+- **Mouse**: left click to draw, right click to erase, wheel to zoom, middle click (or Shift + drag) to pan.
+- **Touch**: one finger to draw, two fingers to pan / zoom, eraser tool to erase.
+- **Keyboard**: `Space` pause · `1`–`6` tools · `T` road type · `V` traffic view · `F` speed · `C` recenter · `Esc` menu.
+
+The interface is available in English and French.
+
+## Run it locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Ouvre l'adresse affichée (`http://localhost:5173`). Pour tester sur ton téléphone, connecte-le au même Wi-Fi et ouvre l'adresse « Network » affichée par Vite (le serveur écoute déjà sur le réseau local).
-
-## Principe
-
-- Chaque **maison** possède quatre voitures. Les **bâtiments** génèrent des demandes (points blancs) que les voitures de leur couleur viennent satisfaire : chaque livraison rapporte 1 point.
-- Les maisons poussent en **quartiers**, à distance de leur bâtiment, de plus en plus loin à mesure que la ville s'agrandit : les flux des différentes couleurs se croisent et il faut de vrais axes.
-- Un nouveau bâtiment commence à demander dès qu'il est relié à une maison (ou après quelques secondes).
-- Si un bâtiment accumule trop de demandes, un compte à rebours démarre. S'il arrive au bout, la partie est perdue.
-- Chaque **semaine**, la ville s'agrandit, tu reçois des routes et tu choisis une amélioration.
-
-### Mécaniques de trafic
-
-| Élément | Effet |
-| --- | --- |
-| **Rue** | Route standard, 1 route par case. |
-| **Avenue** (semaine 2) | Plus rapide et **prioritaire** : aux carrefours, les rues lui cèdent le passage. Coûte 2 routes par case. |
-| **Sens unique** (semaine 2) | Tracé dans le sens du glisser, flèches sur la chaussée. Supprime des conflits aux carrefours. |
-| **Carrefour** | Une route traversante (2 branches de la classe la plus haute) est prioritaire ; quand 3 routes équivalentes ou plus se croisent, le carrefour fonctionne comme un **stop** (chacun s'arrête). |
-| **Rond-point** | Plusieurs voitures circulent en même temps, les entrants cèdent le passage à l'anneau. |
-| **Feux** | Phases alternées, adaptatives selon la demande. |
-| **Autoroute** | Voie rapide qui passe au-dessus de tout, dans n'importe quelle direction (jusqu'à 13 cases). |
-| **Pont** | Se pose automatiquement quand tu traces au-dessus de l'eau. |
-| **Priorités** (semaine 3) | Un tap sur un carrefour : priorité automatique → route prioritaire choisie (les autres marquent le stop) → tourne-à-gauche interdit. |
-| **Vue trafic** | Colore les routes selon la congestion (vert → rouge). |
-| **Heure de pointe** | La demande suit un rythme hebdomadaire : fin de semaine chargée, week-end calme. |
-
-Repasser sur une route existante avec un autre type la transforme (une rue devient avenue, un sens unique redevient double sens…).
-
-Un bâtiment **déborde quand ses clients attendent trop** : chaque demande (point blanc) vire à l'orange puis au rouge après 30 s ; à partir de 3 demandes en retard, le compte à rebours démarre. Les lignes blanches au sol indiquent les branches qui doivent marquer le stop.
-
-### Quel outil pour quel bouchon ?
-
-Mesuré dans un carrefour-laboratoire à 4 branches (trajets/min, trafic chargé) :
-
-| Situation | Stop | Priorité (gratuit) | Avenue | Feux | Rond-point |
-| --- | --- | --- | --- | --- | --- |
-| Deux gros axes qui se croisent tout droit | 59 | 68 | 71 | **95** | 92 |
-| Beaucoup de voitures qui tournent | 58 | 61 | 66 | 76 | **89** |
-| Trafic moyen | 53 | 60 | 62 | 68 | 67 |
-| Trafic léger | 25 | 26 | 28 | 27 | 27 |
-
-- **Stop** : suffisant tant que le trafic est léger.
-- **Priorité / avenue** : utile quand un axe domine, mais la route secondaire peut se retrouver bloquée.
-- **Feux** : idéaux quand deux grands axes se croisent ; plus efficaces encore si les tourne-à-gauche y sont interdits.
-- **Rond-point** : le meilleur choix dès que beaucoup de voitures tournent.
-- **Interdire de tourner à gauche** : petit gain (quelques %) aux feux, quand un détour existe.
-
-La demande vient des maisons : chacune réclame des trajets vers le bâtiment le plus proche de sa couleur, de plus en plus souvent. Plus les allers-retours sont courts et fluides, plus la ville tient longtemps. Des bots de test tiennent en moyenne ~15 semaines sur Plaine et Rivière, ~12 sur Archipel.
-
-### Contrôles
-
-- **Souris** : clic gauche pour tracer, clic droit pour effacer, molette pour zoomer, clic milieu (ou Maj + glisser) pour déplacer la vue.
-- **Tactile** : un doigt pour tracer, deux doigts pour déplacer / zoomer, gomme pour effacer.
-- **Clavier** : `Espace` pause · `1`–`6` outils · `T` type de route · `V` vue trafic · `F` vitesse · `C` recentrer · `Échap` menu.
+Open the address shown (`http://localhost:5173`). To try it on your phone, connect it to the same Wi-Fi and open the "Network" address printed by Vite (the server already listens on the local network).
 
 ## Scripts
 
-| Commande | Rôle |
+| Command | Purpose |
 | --- | --- |
-| `npm run dev` | Serveur de développement (accessible sur le réseau local). |
-| `npm run build` | Vérification TypeScript + build de production dans `dist/`. |
-| `npm run preview` | Sert le build de production. |
-| `npm test` | Tests (réseau routier, itinéraires, simulation, carrefours). |
-| `BALANCE=1 npx vitest run tests/balance.test.ts` | Sondes d'équilibrage (un bot joue plusieurs parties). |
+| `npm run dev` | Development server (reachable on the local network). |
+| `npm run build` | TypeScript check + production build into `dist/`. |
+| `npm run preview` | Serves the production build. |
+| `npm test` | Tests (road network, routing, simulation, junctions). |
+| `BALANCE=1 npx vitest run tests/balance.test.ts` | Balance probes (bots play whole games). |
 
-Le dossier `dist/` est un site statique : il peut être déployé tel quel sur GitHub Pages, Netlify, itch.io, etc. (les chemins sont relatifs).
+`dist/` is a static site: it can be deployed as is to GitHub Pages, Netlify, itch.io, etc. (all paths are relative). This repository deploys to GitHub Pages on every push to `main`.
 
 ## Architecture
 
 ```
 src/
-  core/        maths, PRNG, polylignes, tas binaire
+  core/        maths, PRNG, polylines, binary heap
   game/
-    network.ts    graphe routier (nœuds sur la grille, liens 8 directions, ponts, autoroutes)
-    geometry.ts   trajectoires des voies (courbes, ronds-points, zones de conflit)
-    pathfind.ts   A* sur (nœud, bras d'arrivée) : sens uniques, interdictions de tourner
-    traffic.ts    voitures, files, carrefours (tickets, priorités, stops, feux, ronds-points), parkings
-    game.ts       apparitions, demande, semaines, améliorations, inventaire
-    builder.ts    outils de construction (tracé, gomme, types de routes, annulation d'un tracé)
-    autobuild.ts  petit bot constructeur (ville de démo du menu, tests)
-  render/      rendu Canvas 2D (terrain, routes, bâtiments, voitures, effets), caméra
-  ui/          HUD et menus en DOM
-  audio.ts     sons et musique générative (WebAudio, aucun fichier audio)
-  input.ts     souris / tactile / pincement
+    network.ts    road graph (nodes on the grid, 8-direction links, bridges, free-angle motorways)
+    geometry.ts   lane paths (curves, roundabouts, conflict zones)
+    pathfind.ts   A* over (node, arrival arm): one-way roads, turn bans
+    traffic.ts    cars, queues, junctions (tickets, priorities, stops, lights, roundabouts), parking lots
+    game.ts       spawning (buildings, districts, houses), demand, weeks, upgrades, inventory
+    builder.ts    building tools (drawing, eraser, road types, stroke undo)
+    autobuild.ts  small builder bot (menu demo city, tests)
+  render/      Canvas 2D rendering (terrain, roads, buildings, cars, effects), camera
+  ui/          DOM HUD and menus
+  audio.ts     sound effects and generative music (WebAudio, no audio files)
+  input.ts     mouse / touch / pinch
 ```
 
-La simulation avance à pas fixe (60 Hz). Chaque voiture suit une liste de segments ; les voitures partageant un segment partagent une voie. Aux carrefours, une voiture doit obtenir un « ticket » : il est accordé si aucun mouvement en conflit n'est en cours, si la sortie a de la place (jamais de voiture bloquée au milieu du carrefour) et selon les priorités (route traversante, stop, feux, anneau du rond-point).
+The simulation runs at a fixed step (60 Hz). Each car follows a list of segments; cars sharing a segment share a lane. At junctions, a car needs a "ticket": it is granted when no conflicting movement is in progress, when the exit has room (no car is ever left blocking the middle of a junction) and according to priorities (through road, stop, lights, roundabout ring).
