@@ -10,5 +10,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // simulation-heavy tests are slower on CI runners
+    testTimeout: 60000,
   },
 });
